@@ -83,7 +83,11 @@ def chat(system: str, user: str, max_tokens: int = 2000,
     }
     last_err = None
     boosted = False  # 推理型模型（如 deepseek-v4-flash）空 content 时放大预算重试一次
+    t_start = time.time()  # M3.4：单次 chat 总耗时硬上限，防止上游挂起拖死整条链
     for attempt in range(3):
+        if time.time() - t_start > 600:
+            last_err = f"chat 总耗时超过 600s 上限（当前第 {attempt} 次尝试），放弃"
+            break
         try:
             r = requests.post(url, json=payload, headers=headers,
                               timeout=timeout or config.LLM_TIMEOUT)
@@ -106,7 +110,7 @@ def chat(system: str, user: str, max_tokens: int = 2000,
             if not boosted and finish == "length" and reasoning:
                 boosted = True
                 payload["max_tokens"] = max(payload.get("max_tokens", 0) * 3, 6000)
-                timeout = 240
+                timeout = 120
                 print(f"[llm] {model} 推理占满预算，放大 max_tokens 重试一次")
                 attempt -= 1
                 continue

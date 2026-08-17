@@ -17,8 +17,8 @@ DATA_URL = "http://e.17500.cn/getData/ssq.TXT"
 
 # ---------- 版本信息（前端主页 / API / GitHub 说明统一引用） ----------
 
-APP_VERSION = "0.6.0"          # 语义化版本：M1 前端工作台 + M2 模型升级已上线
-APP_BUILD = "2026-08-M2"       # 构建标识（M3/M4 规划中，见 docs/M3_M4_PLAN.md）
+APP_VERSION = "0.7.0"          # 语义化版本：M1 工作台 + M2 模型升级 + M3 研究闭环已上线
+APP_BUILD = "2026-08-M3"       # 构建标识（M4 规划中，见 docs/M3_M4_PLAN.md）
 APP_MILESTONES = {
     "M1": {"status": "done",    "desc": "前端 Tab 工作台 + 规律库扩容 29 条 + 自动挖掘管道 + 任务系统"},
     "M2": {"status": "done",    "desc": "GBDT/RF 概率模型 + 滚动 Brier 加权融合 + 概率校准 + 蓝球独立投票 + ML walk-forward 评估"},

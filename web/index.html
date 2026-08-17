@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>双色球智能预测分析系统</title>
-<link rel="stylesheet" href="/static/style.css?v=20260816.6">
+<link rel="stylesheet" href="/static/style.css?v=20260817.7">
 <!-- ECharts CDN + 本地 fallback -->
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
-  onerror="this.src='/static/vendor/echarts.min.js?v=20260816.6'"></script>
+  onerror="this.src='/static/vendor/echarts.min.js?v=20260817.7'"></script>
 </head>
 <body>
 <div class="app">
@@ -119,6 +119,7 @@
             <span class="tag" id="patSummary"></span>
             <button style="margin-left:8px;font-size:11px;padding:3px 8px;" onclick="runBacktest()">🧪 重新回测</button>
             <button style="margin-left:4px;font-size:11px;padding:3px 8px;" onclick="runMining()">⛏️ 自动挖掘</button>
+            <button style="margin-left:4px;font-size:11px;padding:3px 8px;" onclick="comparePatterns()">⚖️ 多选对比</button>
           </h2>
           <div class="pat-filters">
             <select id="patGradeFilter" onchange="filterPatterns()">
@@ -146,6 +147,7 @@
           </div>
           <div id="miningRuns" class="note" style="margin-top:8px;font-size:12px"></div>
           <div class="chart" id="chPattern" style="height:200px;"></div>
+          <div class="chart" id="chPatternCmp" style="height:220px;"></div>
         </div>
 
         <!-- 规律详情面板 -->
@@ -170,6 +172,11 @@
             <option value="">-- 选择期号 --</option>
           </select>
           <div id="replayResult"></div>
+        </div>
+        <div class="card">
+          <h2>🔍 系统回放诊断 <span class="tag">纯统计+ML 反事实</span></h2>
+          <button onclick="runReplayDiag()" style="margin:8px 0;padding:4px 12px;">运行最近 20 期诊断</button>
+          <div id="replayDiag"></div>
         </div>
       </section>
 
@@ -279,6 +286,6 @@
 </div>
 
 <div id="toast"></div>
-<script src="/static/app.js?v=20260816.6"></script>
+<script src="/static/app.js?v=20260817.7"></script>
 </body>
 </html>

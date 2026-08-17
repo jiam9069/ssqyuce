@@ -15,7 +15,7 @@
 >
 > 系统输出仅供研究参考，不构成中奖概率与投注建议。**理性购彩，量力而行。**
 
-## 🚀 最近升级概要（M1 / M2 已上线 · v0.6.0）
+## 🚀 最近升级概要（M1-M3 已上线 · v0.7.0）
 
 - **M1 前端工作台**：单页重构为 Tab 工作台（预测中心 / 数据分析 / 规律研究 / 历史回放 / 评估报告 / 数据管理 / 设置）；
   预测可配置（注数 / LLM 开关）、每注复制 / 收藏 / 展开依据、号码点选统计卡、「我的号码诊断」、历史预测回放；
@@ -26,6 +26,10 @@
   新增 ML walk-forward 滚动评估：Brier / log-loss / 校准曲线（可靠性图）/ ECE / **paired 显著性检验**（wilcoxon / sign-test），全程对照均匀随机基线。
 - **诚实结论**：M2 评估的目标不是"提高命中率"，而是量化"ML 与随机基线无显著差异"这一事实并做结构配平 ——
   所有新增模型/规律仍须通过样本外回测 + 多重检验校正才能进入 UI（详见下方回测表与 docs/UPGRADE_PLAN.md）。
+- **M3 研究闭环**：LLM 离线三通道评估（统计 vs 统计+LLM vs 随机基线，paired + BH 校正，token 成本估算）；
+  LLM 生成链路升级（回测规律明细/上期预测回馈/evidence 结构化/第三轮校验）；规律挖掘 40 维特征 +
+  LightGBM/RandomForest 重要性 + mining_runs 运行报告；规律研究台新增红牌预警与多选对比；系统回放诊断；
+  全程坚持"双色球为独立随机，任何声称的规律都需样本外 + 多重检验校正"的诚实口径。
 
 > 下一步 **M3 研究闭环**、**M4 长期运营** 的完整规划（任务拆分 / 验收标准 / 工作量 / 风险）见
 > [docs/M3_M4_PLAN.md](docs/M3_M4_PLAN.md)；版本与里程碑状态也可通过 GET /api/info 与主页页脚徽标查看。
@@ -237,6 +241,15 @@ Dockerfile / docker-compose.yml
 
 
 ## 版本记录
+
+### v0.7.0（M3 研究闭环，2026-08 上线）
+
+- **LLM 离线评估**：三通道 walk-forward（统计 / 统计+LLM / 随机基线）60 期 × 5 注，paired 检验（wilcoxon/sign-test）+ BH 多重校正；LLM 失败期如实回退统计输出并统计 llm_empty_issues；token 成本估算（默认 $1/1M）
+- **LLM 构建增强**：prompt 注入样本外回测规律明细（n / p_adj / 威尔逊区间）与上期预测回馈；tickets 输出 evidence / counter_evidence / structure_scores 结构化字段并落库展示；第三轮校验（critique → 问题才 refine，默认开启，评估口径关闭）
+- **挖掘管道增强**：特征 20 → 40 维（邻号/同尾/同区/龙头凤尾/升降温/共现/冷门集中度）；重要性引擎 LightGBM → RandomForest → numpy lift 自动回退；mining_runs 运行记录 + /api/mining/reports + 前端挖掘报告
+- **规律研究台**：红牌预警（近 20 期边际下滑 / 连续负边际）、多选对比（边际时间序列叠加）
+- **回放诊断**：最近 N 期「系统预测 vs 实际」反事实回放（纯统计+ML，固定种子）
+- **工程加固**：LLM 单次调用总耗时 600s 硬上限防挂起、sklearn 单线程防死锁（n_jobs=1 + OMP/MKL/OPENBLAS 限线程）、sqlite 侧边文件 gitignore
 
 ### v0.6.0（M2 模型升级，2026-08 上线）
 

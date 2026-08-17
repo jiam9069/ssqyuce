@@ -291,6 +291,41 @@ def get_latest_mining():
     return M.get_latest_mining_result() or {"status": "none"}
 
 
+# ---------- 回放诊断（M3.5） ----------
+
+@app.post("/api/replay/diagnose")
+def replay_diagnose(n: int = Query(20, ge=3, le=60), use_ml: bool = Query(True)):
+    """最近 N 期「系统预测 vs 实际开奖」反事实回放（纯统计+ML，固定种子可复现）。"""
+    import random
+    import numpy as np
+    from . import engine as E, evaluate as EV
+    draws = db.load_draws()
+    if len(draws) < n + 305:
+        return JSONResponse({"ok": False, "error": f"数据不足（需 ≥{n + 305} 期）"},
+                            status_code=400)
+    rng = random.Random(20260817)
+    results, rows = [], []
+    for i in range(len(draws) - n, len(draws)):
+        history = draws[:i]
+        target = draws[i]
+        res = E.predict_next(history, use_llm=False, n_tickets=10, persist=False,
+                             use_ml=use_ml, rng=rng)
+        tr = EV.tickets_result(res["tickets"], target)
+        results.append(tr)
+        rows.append({
+            "issue": target["issue"], "date": target["date"],
+            "red_hits_mean": round(float(np.mean(tr["red_hits"])), 3),
+            "blue_hit": int(sum(tr["blue_hits"])),
+            "prize_level": tr["best_level"],
+            "reward": round(tr["reward"], 2),
+        })
+    agg = EV.aggregate(results)
+    return {"ok": True, "use_ml": use_ml, "n": len(rows), "rows": rows,
+            "aggregate": agg,
+            "note": ("最近 N 期反事实回放：每期只用该期之前数据预测（纯统计+ML，固定种子可复现），"
+                     "对照实际开奖。LLM 通道不参与（成本与噪声考虑）。")}
+
+
 @app.get("/api/mining/reports")
 def mining_reports(limit: int = Query(20, ge=1, le=100)):
     """挖掘运行历史（M3.3）：engine/候选数/通过率/lift/耗时 等运行记录。"""

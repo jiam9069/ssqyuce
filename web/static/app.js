@@ -474,6 +474,8 @@ function _summary(patterns) {
 function renderPatterns(items, summary) {
   allPatterns = items;
   $("#patSummary").textContent = "A:" + summary.A + " B:" + summary.B + " C:" + summary.C;
+  const rfCount = allPatterns.filter(p => { const rf = patternRedFlag(p); return rf && rf.flagged; }).length;
+  if (rfCount) $("#patSummary").textContent += " · 🔴红牌 " + rfCount;
   $("#patCount").textContent = "共 " + items.length + " 条";
   filterPatterns();
   const ch = echartsInit("chPattern");
@@ -501,14 +503,17 @@ function filterPatterns() {
   let filtered = allPatterns;
   if (grade) filtered = filtered.filter(p => p.grade === grade);
   if (kind) filtered = filtered.filter(p => p.kind === kind);
-  $("#patCount").textContent = "显示 " + filtered.length + "/" + allPatterns.length + " 条";
+  const redN = filtered.filter(p => { const rf = patternRedFlag(p); return rf && rf.flagged; }).length;
+  $("#patCount").textContent = "显示 " + filtered.length + "/" + allPatterns.length + " 条" + (redN ? " · 🔴红牌 " + redN : "");
   const tb = $("#patTable tbody");
   tb.innerHTML = filtered.map((p, idx) => {
+    const realIdx = allPatterns.findIndex(x => x.key === p.key);
     const bt = p.backtest || {};
     const g = p.grade || "C";
     const hasSeries = bt.series && bt.series.length > 0;
+    const rf = patternRedFlag(p);
     return "<tr>" +
-      "<td>" + escHtml(p.name_zh) + (p._mined ? "<span class='badge' style='margin-left:4px'>挖掘</span>" : "") + "</td>" +
+      "<td><input type='checkbox' class='pat-cmp' value='" + escHtml(p.key) + "' title='勾选后可多选对比'> " + escHtml(p.name_zh) + (p._mined ? "<span class='badge' style='margin-left:4px'>挖掘</span>" : "") + (rf && rf.flagged ? " <span title='红牌:" + escHtml(rf.reason) + "' style='color:var(--red)'>🔴</span>" : "") + "</td>" +
       "<td>" + p.kind + "</td>" +
       "<td style='color:var(--muted)'>" + escHtml((p.desc||"").slice(0,40)) + "</td>" +
       "<td>" + (bt.n ?? p.sample_size ?? "-") + "</td>" +
@@ -528,6 +533,7 @@ function showPatDetail(idx) {
   const p = allPatterns[idx];
   if (!p) return;
   const bt = p.backtest || {};
+  const rf = patternRedFlag(p);
   $("#patDetailName").textContent = p.name_zh + " [" + p.kind + "]";
   $("#patDetailBody").innerHTML =
     '<div class="note">' + escHtml(p.desc || "") + '</div>' +
@@ -542,7 +548,10 @@ function showPatDetail(idx) {
       (bt.ci_lower != null ? metricItem("95%CI", "[" + bt.ci_lower + ", " + bt.ci_upper + "]") : "") +
       (bt.avg_fav_size != null ? metricItem("fav大小", bt.avg_fav_size) : "") +
     '</div>' +
-    (bt.note ? '<div class="note" style="margin-top:8px;color:var(--red)">' + escHtml(bt.note) + '</div>' : '');
+    (bt.note ? '<div class="note" style="margin-top:8px;color:var(--red)">' + escHtml(bt.note) + '</div>' : '') +
+    (rf ? (rf.flagged
+      ? '<div class="note" style="margin-top:8px;color:var(--red)">🔴 红牌：' + escHtml(rf.reason) + '（近' + rf.n + '期边际 ' + fmt(rf.recentMargin,3) + ' vs 总体 ' + fmt(rf.overallMargin,3) + '，连续负边际 ' + rf.missStreak + ' 期）</div>'
+      : '<div class="note" style="margin-top:8px">🟢 未触发红牌：近' + rf.n + '期边际 ' + fmt(rf.recentMargin,3) + ' vs 总体 ' + fmt(rf.overallMargin,3) + '，连续负边际 ' + rf.missStreak + ' 期</div>') : '');
   $("#patDetailCard").classList.remove("hidden");
   if (bt.series && bt.series.length > 1) {
     renderPatSeriesChart(bt.series);
@@ -582,7 +591,73 @@ function closePatDetail() {
   $("#patDetailCard").classList.add("hidden");
 }
 
+// ---------- M3.4 规律研究台：红牌预警 + 多选对比 ----------
+
+function patternRedFlag(p) {
+  const s = (p.backtest && p.backtest.series) || [];
+  if (s.length < 10) return null;
+  const n = Math.max(10, Math.min(20, Math.floor(s.length / 3)));
+  const recent = s.slice(-n);
+  const om = s.reduce((a, b) => a + (b.margin || 0), 0) / s.length;
+  const rm = recent.reduce((a, b) => a + (b.margin || 0), 0) / recent.length;
+  let miss = 0;
+  for (let i = recent.length - 1; i >= 0; i--) { if ((recent[i].margin || 0) < 0) miss++; else break; }
+  const flagged = rm < om - 0.02 || miss >= 5;
+  return { n, overallMargin: om, recentMargin: rm, missStreak: miss, flagged,
+           reason: miss >= 5 ? ("连续 " + miss + " 期负边际")
+                             : ("近 " + n + " 期边际 " + fmt(rm, 3) + " 较总体 " + fmt(om, 3) + " 下滑") };
+}
+
+function comparePatterns() {
+  const checked = Array.from(document.querySelectorAll(".pat-cmp:checked")).map(c => c.value);
+  if (checked.length < 2) { toast("请至少勾选 2 条规律（表格首列勾选框）"); return; }
+  const ps = allPatterns.filter(p => checked.includes(p.key) && p.backtest && p.backtest.series && p.backtest.series.length > 1);
+  if (ps.length < 2) { toast("选中的规律缺少边际序列，无法对比"); return; }
+  const ch = echartsInit("chPatternCmp");
+  if (!ch) return;
+  const cols = ["#3b82f6", "#f59e0b", "#22c55e", "#ef4444"];
+  ch.setOption({
+    backgroundColor: "transparent", grid: {left: 44, right: 12, top: 28, bottom: 22},
+    legend: {textStyle: {color: "#8b949e"}, top: 0},
+    tooltip: {trigger: "axis"},
+    xAxis: {type: "category", data: Array.from({length: Math.max(...ps.map(p => p.backtest.series.length))}, (_, i) => i), axisLabel: {show: false}},
+    yAxis: {type: "value", splitLine: {lineStyle: {color: "#2d333b"}}, axisLabel: {color: "#8b949e"}},
+    series: ps.map((p, i) => ({
+      name: p.name_zh, type: "line", showSymbol: false,
+      lineStyle: {width: 1.2, color: cols[i % 4]},
+      data: p.backtest.series.map(s => s.margin || 0),
+    })),
+  });
+  toast("⚖️ 对比 " + ps.length + " 条规律（触发点边际时间序列）");
+}
+
 // ==================== 历史 ====================
+
+async function runReplayDiag() {
+  const el = $("#replayDiag");
+  if (!el) return;
+  el.innerHTML = "诊断运行中（纯统计+ML 反事实回放，约 10~30 秒）...";
+  try {
+    const r = await api("/api/replay/diagnose?n=20&use_ml=true", {method:"POST"});
+    if (!r.ok) throw new Error(r.error || "诊断失败");
+    const a = r.aggregate || {};
+    const rows = (r.rows || []).map(x =>
+      "<tr><td class='mono'>" + x.issue + "</td><td>" + x.date + "</td>" +
+      "<td>" + fmt(x.red_hits_mean, 2) + "</td><td>" + (x.blue_hit ? "✅" : "—") + "</td>" +
+      "<td>" + (x.prize_level >= 5 ? "五等+" : "未中") + "</td><td>¥" + fmt(x.reward, 1) + "</td></tr>"
+    ).join("");
+    el.innerHTML =
+      '<div class="note">最近 ' + r.n + ' 期反事实回放（每期只用此前数据，固定种子）</div>' +
+      '<div class="scroll" style="max-height:260px"><table><thead><tr>' +
+      "<th>期号</th><th>日期</th><th>红球平均命中</th><th>蓝球命中</th><th>最好等级</th><th>奖金¥</th></tr></thead><tbody>" +
+      rows + "</tbody></table></div>" +
+      '<div class="note" style="margin-top:8px">汇总：' + a.issues + " 期 × " + a.tickets + " 注 · 红球平均命中 " +
+      fmt(a.red_hits_mean, 3) + " · 蓝球命中率 " + pct(a.blue_hit_rate) + " · ≥五等率 " + pct(a.prize_rate_ge5) +
+      " · 总奖金 ¥" + fmt(a.reward_total, 1) + " · ROI " + pct(a.roi) +
+      ' <span style="color:var(--muted)">（对照：随机基线期望红球 1.09/注、蓝球 6.25%）</span></div>' +
+      '<div class="note" style="color:var(--muted)">' + escHtml(r.note || "") + "</div>";
+  } catch(e) { el.innerHTML = '<div class="note" style="color:var(--red)">诊断失败: ' + escHtml(e.message) + "</div>"; }
+}
 
 async function renderHistory() {
   try {
@@ -1111,7 +1186,7 @@ async function loadAll() {
       if (health.version) {
         const ver = "v" + health.version;
         const vb = $("#verBadge"), vt = $("#verText");
-        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + "（M1 · M2 已上线，M3/M4 规划中）"; }
+        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + "（M1-M3 已上线 · v0.7.0，M4 规划中）"; }
         if (vt) vt.textContent = ver;
       }
     }
