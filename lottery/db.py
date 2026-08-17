@@ -449,7 +449,12 @@ def load_llm_eval_run(run_id: str) -> Optional[Dict]:
                 "blue_hit": r["blue_hit"],
                 "roi": r["roi"],
             })
-    return {
+    emp = None
+    for ch, v in summary.items():
+        meta = (v.get("metrics") or {}).get("_meta")
+        if meta and meta.get("llm_empty_issues") is not None:
+            emp = meta["llm_empty_issues"]
+    out = {
         "run_id": run_id,
         "created_at": first["created_at"],
         "window_issues": first["window_issues"],
@@ -458,6 +463,9 @@ def load_llm_eval_run(run_id: str) -> Optional[Dict]:
         "summary": summary,
         "per_issue": per_issue,
     }
+    if emp is not None:
+        out["llm_empty_issues"] = emp
+    return out
 
 
 # ---------- 规律挖掘运行记录（M3.3） ----------

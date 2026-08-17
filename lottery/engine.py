@@ -394,10 +394,16 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
             t["method"] = "uniform"
             candidates.append(t)
 
-    # LLM 候选
-    llm_cands = llm_tickets(draws, stats, patterns, rng,
-                               llm_samples=llm_samples,
-                               llm_verify=llm_verify) if use_llm else []
+    # LLM 候选（任何异常都降级为纯统计，绝不让 LLM 拖死整次预测）
+    llm_cands = []  # type: ignore
+    if use_llm:
+        try:
+            llm_cands = llm_tickets(draws, stats, patterns, rng,
+                                    llm_samples=llm_samples,
+                                    llm_verify=llm_verify)
+        except Exception as e:  # noqa: BLE001
+            print(f"[engine] LLM 通道异常，降级为纯统计: {e}")
+            llm_cands = []
     candidates.extend(llm_cands)
     llm_models_used = sorted({
         t["method"].split(":", 1)[1] for t in llm_cands if t["method"].startswith("llm:")

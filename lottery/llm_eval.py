@@ -217,7 +217,10 @@ def run_llm_eval(draws: List[Dict], issues: Optional[int] = None,
             "tokens": usage[ch]["tokens"],
             "cost_usd": usage[ch]["cost_usd"],
             "duration_ms": usage[ch]["duration_ms"],
-            "metrics_json": summary_meta[ch]["metrics"],
+            "metrics_json": (summary_meta[ch]["metrics"] if ch != "stat_llm" else {
+                **summary_meta[ch]["metrics"],
+                "_meta": {"llm_empty_issues": llm_empty_issues, "llm_samples": 1},
+            }),
             "p_values_json": comparisons,
         })
     db.save_llm_eval_rows(run_id, created_at, issues_actual, n_tickets, seed, rows)
