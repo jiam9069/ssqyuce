@@ -263,7 +263,8 @@ def diagnose_endpoint(
 # ---------- 挖掘 ----------
 
 @app.post("/api/mining/run")
-def run_mining(min_start: int = Query(300, ge=120, le=1000)):
+def run_mining(min_start: int = Query(300, ge=120, le=1000),
+               engine: str = Query("rf")):
     from . import backtest as BT
     import uuid
     task_id = f"mine_{uuid.uuid4().hex[:8]}"
@@ -274,7 +275,7 @@ def run_mining(min_start: int = Query(300, ge=120, le=1000)):
     # 同步执行（挖掘较快，通常 <10s）
     try:
         db.update_task(task_id, "running", 0.1, "正在计算特征...")
-        result = M.run_mining(draws, min_start=min_start, save_to_db=True)
+        result = M.run_mining(draws, min_start=min_start, save_to_db=True, engine=engine)
         db.update_task(task_id, "completed", 1.0, "完成")
         db.complete_task(task_id, json.dumps(result, ensure_ascii=False))
         # 同时刷新规律列表
@@ -288,6 +289,12 @@ def run_mining(min_start: int = Query(300, ge=120, le=1000)):
 @app.get("/api/mining/latest")
 def get_latest_mining():
     return M.get_latest_mining_result() or {"status": "none"}
+
+
+@app.get("/api/mining/reports")
+def mining_reports(limit: int = Query(20, ge=1, le=100)):
+    """挖掘运行历史（M3.3）：engine/候选数/通过率/lift/耗时 等运行记录。"""
+    return {"runs": db.list_mining_runs(limit)}
 
 
 # ---------- 历史预测 ----------

@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS predictions (
   method TEXT NOT NULL,          -- stat / llm / mixed
   reasoning TEXT DEFAULT '',
   patterns_used TEXT DEFAULT '',
+  evidence_json TEXT DEFAULT '',
   created_at REAL,
   PRIMARY KEY (issue, seq)
 );
@@ -97,6 +98,19 @@ CREATE TABLE IF NOT EXISTS llm_eval_results (
   seed INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_llm_eval_run ON llm_eval_results(run_id);
+
+CREATE TABLE IF NOT EXISTS mining_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  engine TEXT NOT NULL,              -- lightgbm / rf / lift
+  candidates INTEGER DEFAULT 0,      -- 候选规律数
+  accepted INTEGER DEFAULT 0,        -- B 级及以上入库数
+  avg_lift REAL DEFAULT 0.0,
+  pass_rate REAL DEFAULT 0.0,        -- accepted / candidates
+  duration_ms INTEGER DEFAULT 0,
+  params_json TEXT DEFAULT ''
+);
 """
 
 _CONN: sqlite3.Connection | None = None
@@ -109,8 +123,17 @@ def get_conn() -> sqlite3.Connection:
         _CONN = sqlite3.connect(str(config.DB_PATH), check_same_thread=False)
         _CONN.row_factory = sqlite3.Row
         _CONN.executescript(SCHEMA)
+        _ensure_columns(_CONN)
         _CONN.commit()
     return _CONN
+
+
+def _ensure_columns(conn: sqlite3.Connection) -> None:
+    """存量库幂等补列（M3.2：predictions.evidence_json）。"""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(predictions)").fetchall()}
+    if "evidence_json" not in cols:
+        conn.execute("ALTER TABLE predictions ADD COLUMN evidence_json TEXT DEFAULT ''")
+        conn.commit()
 
 
 def close():
@@ -246,12 +269,14 @@ def save_predictions(issue: str, tickets: List[Dict]):
     now = time.time()
     for i, t in enumerate(tickets, 1):
         conn.execute(
-            """INSERT INTO predictions (issue,seq,reds,blue,confidence,method,reasoning,patterns_used,created_at)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
+            """INSERT INTO predictions
+               (issue,seq,reds,blue,confidence,method,reasoning,patterns_used,evidence_json,created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
             (
                 issue, i, ",".join(map(str, t["reds"])), t["blue"], t["confidence"],
                 t.get("method", "mixed"), t.get("reasoning", ""),
-                json.dumps(t.get("patterns_used", []), ensure_ascii=False), now,
+                json.dumps(t.get("patterns_used", []), ensure_ascii=False),
+                json.dumps(t.get("evidence", {}), ensure_ascii=False), now,
             ),
         )
     conn.commit()
@@ -266,6 +291,8 @@ def load_predictions(issue: str) -> List[Dict]:
         d = dict(r)
         d["reds"] = [int(x) for x in d["reds"].split(",")]
         d["patterns_used"] = json.loads(d.get("patterns_used") or "[]")
+        d["evidence"] = json.loads(d.get("evidence_json") or "{}")
+        d.pop("evidence_json", None)
         out.append(d)
     return out
 
@@ -431,3 +458,32 @@ def load_llm_eval_run(run_id: str) -> Optional[Dict]:
         "summary": summary,
         "per_issue": per_issue,
     }
+
+
+# ---------- 规律挖掘运行记录（M3.3） ----------
+
+def save_mining_run(r: Dict) -> None:
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO mining_runs "
+        "(run_id,created_at,engine,candidates,accepted,avg_lift,pass_rate,duration_ms,params_json) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (r["run_id"], r["created_at"], r["engine"], int(r.get("candidates", 0)),
+         int(r.get("accepted", 0)), float(r.get("avg_lift", 0.0)),
+         float(r.get("pass_rate", 0.0)), int(r.get("duration_ms", 0)),
+         json.dumps(r.get("params_json") or {}, ensure_ascii=False)))
+    conn.commit()
+
+
+def list_mining_runs(limit: int = 20) -> List[Dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM mining_runs ORDER BY id DESC LIMIT ?", (int(limit),)).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["params"] = json.loads(d.pop("params_json") or "{}")
+        except Exception:  # noqa: BLE001
+            d["params"] = {}
+        out.append(d)
+    return out

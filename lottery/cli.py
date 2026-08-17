@@ -97,7 +97,9 @@ def cmd_serve(args):
 def cmd_mine(args):
     from . import mining
     draws = _draws()
-    res = mining.run_mining(draws, min_start=args.min_start)
+    res = mining.run_mining(draws, min_start=args.min_start,
+                            engine=getattr(args, "engine", "rf"),
+                            top_k_features=getattr(args, "top_k", 8))
     print(json.dumps(res, ensure_ascii=False, indent=2))
 
 def cmd_doctor(args):
@@ -158,6 +160,9 @@ def main(argv=None):
     sub.add_parser("online_check", help="在线预测对照评估")
     m = sub.add_parser("mine", help="运行规律自动挖掘管道")
     m.add_argument("--min-start", type=int, default=300)
+    m.add_argument("--engine", choices=["lightgbm", "rf", "lift"], default="rf",
+                   help="特征重要性引擎（lightgbm 未安装时自动回退 rf/lift）")
+    m.add_argument("--top-k", type=int, default=8, help="保留 Top-K 特征生成候选规律")
     sub.add_parser("doctor", help="系统自检（数据库/版本徽标/缓存号/vendor/LLM 配置）")
     s = sub.add_parser("serve", help="启动 Web 服务（默认端口 18000，可用 PORT 环境变量覆盖）")
     s.add_argument("--host", default="0.0.0.0")

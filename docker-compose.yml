@@ -27,6 +27,7 @@ services:
       - LOTT_LLM_EVAL_MODEL=${LOTT_LLM_EVAL_MODEL:-}
       - LOTT_LLM_EVAL_PRICE_PER_1M=${LOTT_LLM_EVAL_PRICE_PER_1M:-1.0}
       - LOTT_LLM_VERIFY_MODEL=${LOTT_LLM_VERIFY_MODEL:-}
+      - LOTT_LLM_VERIFY=${LOTT_LLM_VERIFY:-1}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:18000/api/health', timeout=5)"]

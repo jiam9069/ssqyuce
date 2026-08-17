@@ -19,13 +19,29 @@ from .config import BASE
 
 # ---------- 特征工程 ----------
 
-_WINDOW_SIZES = (5, 10, 20, 30, 50, 150)
+_WINDOW_SIZES = (3, 5, 7, 10, 15, 20, 30, 50, 100, 150)
 _FEATURE_NAMES = [
-    "freq_5", "freq_10", "freq_20", "freq_30", "freq_50", "freq_150",
-    "omit_cur", "omit_avg", "omit_ratio",
+    # 多窗口频率（10）
+    "freq_3", "freq_5", "freq_7", "freq_10", "freq_15", "freq_20",
+    "freq_30", "freq_50", "freq_100", "freq_150",
+    # 遗漏（4）
+    "omit_cur", "omit_avg", "omit_ratio", "omit_bin",
+    # 近 N 期出现（6）
     "appeared_1", "appeared_2", "appeared_3", "appeared_5", "appeared_10", "appeared_20",
+    # 三区（3）
     "zone_1_count", "zone_2_count", "zone_3_count",
+    # 和值/跨度（2）
     "sum_value", "span_value",
+    # M3.3 新增（15）：
+    "neighbor_freq_20", "neighbor_freq_50", "neighbor_omit_avg",   # 邻号
+    "tail_hot_30", "tail_omit",                                    # 同尾
+    "zone_self_hot_50",                                            # 同区
+    "head_rate_50", "tail_rate_50",                                # 龙头/凤尾
+    "repeat_last", "back_2",                                       # 上期/隔期
+    "asc_trend_10", "desc_trend_10",                               # 升温/降温
+    "rank_freq_150",                                               # 全历史频率排名
+    "co_hot_30",                                                   # 共现热度
+    "cold_concentrate",                                            # 冷门集中度
 ]
 
 
@@ -50,6 +66,8 @@ def _compute_features_for_number(
     feats.append(float(om_avg[number]))
     ratio = float(om_cur[number]) / float(om_avg[number]) if float(om_avg[number]) > 0 else 0.0
     feats.append(ratio)
+    oc = float(om_cur[number])
+    feats.append(4.0 if oc > 20 else 3.0 if oc > 15 else 2.0 if oc > 10 else (1.0 if oc > 5 else 0.0))
 
     # 是否近 N 期出现
     for k in (1, 2, 3, 5, 10, 20):
@@ -72,6 +90,66 @@ def _compute_features_for_number(
     else:
         feats.append(0.0)
         feats.append(0.0)
+
+    # ---- M3.3 新增特征（邻号/同尾/同区/位置/趋势/共现）----
+    nbr = [x for x in (number - 1, number + 1) if 1 <= x <= 33]
+
+    def _nfreq(w: int) -> float:
+        sl = F.window_slice(history, w)
+        f = F.red_frequency(sl)
+        return float(np.mean([f[x] for x in nbr])) if nbr else 0.0
+
+    feats.append(_nfreq(20))
+    feats.append(_nfreq(50))
+    feats.append(float(np.mean([float(om_cur[x]) for x in nbr])) if nbr else 0.0)
+
+    tail = number % 10
+    tail_draws = history[-30:] if len(history) >= 30 else history
+    t_cnt = sum(1 for d in tail_draws for x in d["reds"] if x % 10 == tail)
+    feats.append(float(t_cnt) / max(len(tail_draws), 1) / 6.0)
+    t_om = [float(om_cur[x]) for x in range(1, 34) if x % 10 == tail]
+    feats.append(float(np.mean(t_om)) if t_om else 0.0)
+
+    zone = 0 if number <= 11 else (1 if number <= 22 else 2)
+    sl50 = history[-50:] if len(history) >= 50 else history
+    if sl50:
+        f50 = F.red_frequency(sl50)
+        zset = [x for x in range(1, 34)
+                if (0 if x <= 11 else (1 if x <= 22 else 2)) == zone]
+        feats.append(float(np.mean([f50[x] for x in zset])))
+    else:
+        feats.append(0.0)
+
+    h50 = history[-50:] if len(history) >= 50 else history
+    head = sum(1 for d in h50 if min(d["reds"]) == number)
+    tailr = sum(1 for d in h50 if max(d["reds"]) == number)
+    feats.append(float(head) / max(len(h50), 1))
+    feats.append(float(tailr) / max(len(h50), 1))
+
+    feats.append(1.0 if history and number in history[-1]["reds"] else 0.0)
+    feats.append(1.0 if len(history) >= 2 and number in history[-2]["reds"] else 0.0)
+
+    f10 = float(F.red_frequency(history[-10:] if len(history) >= 10 else history)[number])
+    f50v = float(F.red_frequency(history[-50:] if len(history) >= 50 else history)[number])
+    feats.append(1.0 if f10 > f50v else 0.0)
+    feats.append(1.0 if f10 < f50v else 0.0)
+
+    f_all = F.red_frequency(history)[1:]
+    rank = float((f_all >= f_all[max(0, number - 1)]).mean()) if len(f_all) else 0.0
+    feats.append(rank)
+
+    c30 = history[-30:] if len(history) >= 30 else history
+    co = set()
+    for d in c30:
+        if number not in d["reds"]:
+            co |= set(d["reds"])
+    if co:
+        f30 = F.red_frequency(c30)
+        feats.append(float(np.mean([f30[x] for x in co])))
+    else:
+        feats.append(0.0)
+
+    feats.append(rank * ratio)   # 冷门集中度
 
     return feats
 
@@ -115,6 +193,30 @@ def _feature_lift(X: np.ndarray, y: np.ndarray, n_bins: int = 5) -> List[float]:
         p_high = y[high_mask].mean()
         lifts[j] = p_high - baseline
     return lifts.tolist()
+
+
+def _feature_importance_ml(X: np.ndarray, y: np.ndarray, engine: str = "rf") -> List[float]:
+    """LightGBM / RandomForest 特征重要性（缺失或失败自动回退）：
+    lightgbm -> sklearn RandomForest -> numpy lift。"""
+    model = None
+    if engine == "lightgbm":
+        try:
+            import lightgbm as lgb  # type: ignore
+            model = lgb.LGBMClassifier(n_estimators=120, learning_rate=0.05,
+                                       num_leaves=31, random_state=42, verbose=-1)
+        except Exception as e:  # noqa: BLE001
+            print(f"[mining] lightgbm 未安装，回退 sklearn RandomForest: {e}")
+            engine = "rf"
+    if engine == "rf":
+        from sklearn.ensemble import RandomForestClassifier
+        model = RandomForestClassifier(n_estimators=120, random_state=42, n_jobs=-1)
+    try:
+        assert model is not None
+        model.fit(X, y)
+        return model.feature_importances_.tolist()
+    except Exception as e:  # noqa: BLE001
+        print(f"[mining] {engine} 拟合失败，回退 numpy lift: {e}")
+        return _feature_lift(X, y)
 
 
 def _top_features_by_lift(
@@ -206,22 +308,27 @@ def run_mining(
     min_start: int = 300,
     top_k_features: int = 8,
     save_to_db: bool = True,
+    engine: str = "rf",
 ) -> Dict:
-    """运行挖掘管道：特征计算 -> 重要性排序 -> 候选规律生成 -> 回测 -> 入库。
+    """运行挖掘管道：特征计算 -> 重要性排序(LightGBM/RF/lift) -> 候选规律生成 -> 回测 -> 入库。
 
-    返回挖掘结果摘要。
+    返回挖掘结果摘要（同时记入 mining_runs 表）。
     """
-    print(f"[mining] 开始挖掘，min_start={min_start}, top_k={top_k_features}")
+    print(f"[mining] 开始挖掘，min_start={min_start}, top_k={top_k_features}, engine={engine}")
     t0 = time.time()
+    run_id = f"mine_{time.strftime('%Y%m%d_%H%M%S')}"
 
-    # 1. 构建特征矩阵
+    # 1. 构建特征矩阵（40 维特征）
     X, y, meta = build_feature_matrix(draws, min_start=min_start)
     print(f"[mining] 特征矩阵形状: {X.shape}, 正样本率: {y.mean():.4f}")
 
-    # 2. 计算特征 lift
-    lifts = _feature_lift(X, y)
-    top_feats = _top_features_by_lift(lifts, _FEATURE_NAMES, top_k=top_k_features)
-    print(f"[mining] Top 特征: {[(name, round(lift, 4)) for name, lift, _ in top_feats]}")
+    # 2. 特征重要性：LightGBM / RandomForest / lift（依次回退）
+    if engine == "lift":
+        importances = _feature_lift(X, y)
+    else:
+        importances = _feature_importance_ml(X, y, engine)
+    top_feats = _top_features_by_lift(importances, _FEATURE_NAMES, top_k=top_k_features)
+    print(f"[mining] Top 特征: {[(name, round(v, 4)) for name, v, _ in top_feats]}")
 
     # 3. 生成候选规律
     candidates = _generate_candidates_from_features(top_feats, draws)
@@ -263,12 +370,34 @@ def run_mining(
     grades = {"A": 0, "B": 0, "C": 0}
     for r in results:
         grades[r.get("grade", "C")] += 1
+    accepted = [r for r in results if r.get("grade") in ("A", "B")]
+    avg_lift = float(np.mean([abs(r.get("_lift", 0.0)) for r in results])) if results else 0.0
     summary = {
+        "run_id": run_id,
+        "engine": engine,
+        "n_features": int(X.shape[1]),
         "n_candidates": len(results),
+        "accepted": len(accepted),
         "grades": grades,
+        "avg_lift": round(avg_lift, 4),
+        "pass_rate": round(len(accepted) / max(1, len(results)), 4),
         "elapsed_seconds": round(elapsed, 1),
-        "features_used": [(name, round(lift, 4)) for name, lift, _ in top_feats],
+        "features_used": [(name, round(v, 4)) for name, v, _ in top_feats],
     }
+    # mining_runs 落库（每次运行都记录，含未入库候选）
+    db.save_mining_run({
+        "run_id": run_id,
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "engine": engine,
+        "candidates": len(results),
+        "accepted": len(accepted),
+        "avg_lift": summary["avg_lift"],
+        "pass_rate": summary["pass_rate"],
+        "duration_ms": int(elapsed * 1000),
+        "params_json": {"min_start": min_start, "top_k": top_k_features,
+                        "n_features": int(X.shape[1])},
+    })
+    save_mining_result(summary)
     print(f"[mining] 完成: {summary}")
     return summary
 

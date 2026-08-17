@@ -163,13 +163,32 @@ def compact_stats(stats: dict) -> dict:
 
 
 
-def critique_prompt(stats_json, recent, patterns, observations, tickets):
-    """第3轮：质疑选号"""
-    return "请审查以下选号并找出问题：\n统计: " + str(stats_json)[:300] + "\n候选: " + str(tickets)[:300]
+def critique_prompt(stats_json, recent, patterns, observations, tickets, feedback=None):
+    """第3轮：质疑选号（输出 JSON verdict/issues/suggestions）。"""
+    return (
+        "你是审稿人。请审查以下候选号码，找出结构性问题（和值/三区/奇偶/跨度极端、蓝球过度集中、"
+        "无依据的号码、与回测规律矛盾等）。保持双色球随机性的诚实立场，不要夸大任何信号。\n"
+        f"## 统计摘要\n{str(stats_json)[:500]}\n"
+        f"## 回测规律\n{str(patterns)[:400]}\n"
+        f"## 上期回馈\n{str(feedback or {})[:200]}\n"
+        f"## 候选号码\n{json.dumps(tickets, ensure_ascii=False)[:1200]}\n"
+        '仅输出 JSON：{"verdict":"ok"|"problematic","issues":["问题1","问题2"],'
+        '"suggestions":{"0":{"reds":[6个红球],"blue":1,"confidence":0-100,"reasoning":"修正理由"}}}；'
+        "若无重大问题，输出 {\"verdict\":\"ok\"}，不要修改任何号码。"
+    )
 
-def refine_prompt(stats_json, critique, tickets):
-    """第3轮：基于批判意见优化"""
-    return "基于批判意见优化：\n意见: " + str(critique)[:300] + "\n原始: " + str(tickets)[:200]
+
+def refine_prompt(stats_json, critique, tickets, feedback=None):
+    """第3轮：基于批判意见生成修正后的选号（与 tickets_prompt 相同 schema）。"""
+    return (
+        "基于审稿意见修正候选号码，只修正被指出的问题，其余号码尽量保留。\n"
+        f"## 统计报告\n```json\n{json.dumps(stats_json, ensure_ascii=False) if isinstance(stats_json, dict) else stats_json}\n```\n"
+        f"## 审稿意见\n{json.dumps(critique, ensure_ascii=False)[:800]}\n"
+        f"## 原候选\n{json.dumps(tickets, ensure_ascii=False)[:1400]}\n"
+        f"## 上期回馈\n{str(feedback or {})[:200]}\n"
+        f"请生成 {config.TICKETS_PER_LLM_CALL} 注修正候选，输出与 tickets_prompt 相同 schema"
+        "（含 evidence / counter_evidence / structure_scores）。"
+    )
 
 
 SYSTEM_BASE = (
@@ -180,34 +199,44 @@ SYSTEM_BASE = (
 )
 
 
-def observations_prompt(stats_json: dict, recent: list, patterns: list) -> str:
-    """第 1 轮：让 LLM 归纳长/中/短期的可检验观察。"""
+def observations_prompt(stats_json: dict, recent: list, patterns: list,
+                            feedback: Optional[dict] = None) -> str:
+    """第 1 轮：让 LLM 归纳长/中/短期的可检验观察（含规律明细与上期回馈）。"""
+    fb = f"## 上期预测回馈（命中情况）\n{json.dumps(feedback, ensure_ascii=False)}\n\n" if feedback else ""
     return (
-        "以下是本期开奖前的统计报告（长/中/短三个窗口）、最近20期走势、以及经过样本外回测的规律清单。\n\n"
+        "以下是本期开奖前的统计报告（长/中/短三个窗口）、最近20期走势、样本外回测规律明细"
+        "（含样本量/边际/p_adj/威尔逊区间）以及上期预测回馈。\n\n"
         f"## 统计报告 JSON\n```json\n{json.dumps(stats_json, ensure_ascii=False)}\n```\n\n"
         f"## 最近走势\n{json.dumps(recent, ensure_ascii=False)}\n\n"
-        f"## 已回测规律（仅 B/C 级弱信号）\n{json.dumps(patterns, ensure_ascii=False)}\n\n"
-        '请输出：{"long_term": ["观察1(附统计依据)", ...3-5条], "mid_term": [...], '
+        f"## 已回测规律明细（仅 B/C 级弱信号，n/边际/p_adj/威尔逊区间）\n{json.dumps(patterns, ensure_ascii=False)}\n\n"
+        + fb
+        + '请输出：{"long_term": ["观察1(附统计依据)", ...3-5条], "mid_term": [...], '
         '"short_term": [...], "caveats": ["承认随机性与不可预测的说明"]}\n'
         "每条观察必须引用具体数字（频率/遗漏/区间比等），不得空谈。"
     )
 
 
-def tickets_prompt(stats_json: dict, recent: list, patterns: list, observations: dict) -> str:
-    """第 2 轮：基于观察生成多注候选号码。"""
+def tickets_prompt(stats_json: dict, recent: list, patterns: list, observations: dict,
+                     feedback: Optional[dict] = None) -> str:
+    """第 2 轮：基于观察生成多注候选号码（含依据/反证/结构分 schema）。"""
+    fb = f"## 上期预测回馈（命中情况）\n{json.dumps(feedback, ensure_ascii=False)}\n" if feedback else ""
     return (
         "基于以下统计报告与你的观察，生成多注候选号码。\n"
         f"## 统计报告\n```json\n{json.dumps(stats_json, ensure_ascii=False)}\n```\n"
         f"## 最近走势\n{json.dumps(recent, ensure_ascii=False)}\n"
-        f"## 已回测规律\n{json.dumps(patterns, ensure_ascii=False)}\n"
-        f"## 你的观察\n{json.dumps(observations, ensure_ascii=False)}\n\n"
-        f"请生成 {config.TICKETS_PER_LLM_CALL} 注候选，输出形如：\n"
+        f"## 已回测规律明细（n/边际/p_adj/威尔逊区间）\n{json.dumps(patterns, ensure_ascii=False)}\n"
+        f"## 你的观察\n{json.dumps(observations, ensure_ascii=False)}\n"
+        + fb
+        + f"请生成 {config.TICKETS_PER_LLM_CALL} 注候选，输出形如：\n"
         '{"tickets": [{"reds": [6个1-33不重复升序整数], "blue": 1个1-16整数, '
         '"confidence": 0-100整数(你的结构置信度，不代表中奖概率), '
         '"reasoning": "一句话理由(必须引用具体统计数字)", '
-        '"patterns_used": ["引用的规律key列表(可以为空)"]}]}\n'
+        '"patterns_used": ["引用的规律key列表(可以为空)"], '
+        '"evidence": {"统计依据": "具体数字，如：遗漏区间6-10的号码近50期出现率34%", "规律引用": "pattern-key"}, '
+        '"counter_evidence": ["为什么不选其它号的1-2条具体理由"], '
+        '"structure_scores": {"和值": 1-10, "奇偶": 1-10, "三区": 1-10, "跨度": 1-10}}]}\n'
         "约束：和值尽量落在历史常见区间，三区比/奇偶比不要极端，蓝球尽量分散。"
-        "若某尺度没有可靠信号，请如实降低置信度并说明。"
+        "若某尺度没有可靠信号，请如实降低置信度并说明。evidence 必须引用上文具体数字，禁止编造。"
     )
 
 

@@ -152,18 +152,96 @@ def build_context(draws: List[Dict], stats: Dict, patterns: List[Dict]) -> Dict:
         "stats": stats,
         "recent": stats.get("recent", []),
         "patterns": [
-            {k: p.get(k) for k in ("key", "name_zh", "kind", "grade", "margin", "p_value")}
+            {
+                "key": p.get("key"), "name_zh": p.get("name_zh"), "kind": p.get("kind"),
+                "grade": p.get("grade"), "margin": p.get("margin"),
+                "p_value": p.get("p_value"), "p_adj": p.get("p_adj"),
+                "n": p.get("sample_size"),
+                "desc": (p.get("desc") or "")[:80],
+                "ci": [
+                    p.get("backtest", {}).get("ci_lower"),
+                    p.get("backtest", {}).get("ci_upper"),
+                ],
+            }
             for p in patterns if p.get("grade") in ("A", "B")
         ],
+        "feedback": _last_feedback(draws),
         "constraints": constraint_ctx(draws),
     }
 
 
+def _last_feedback(draws: List[Dict]) -> Optional[Dict]:
+    """上期预测 vs 实际开奖的命中摘要（供 LLM 回馈下一期，M3.2）。"""
+    if len(draws) < 2:
+        return None
+    last = draws[-1]
+    try:
+        preds = db.load_predictions(last["issue"])
+    except Exception:  # noqa: BLE001
+        preds = []
+    if not preds:
+        return None
+    try:
+        from . import evaluate as EV
+        res = EV.tickets_result(preds, last)
+        return {
+            "issue": last["issue"],
+            "n_tickets": len(preds),
+            "avg_red_hits": round(float(np.mean(res["red_hits"])), 2),
+            "blue_hits": int(sum(res["blue_hits"])),
+            "best_level": res["best_level"],
+            "reward": round(res["reward"], 1),
+        }
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _parse_tickets_response(res: Optional[dict], method_name: str) -> List[Dict]:
+    """校验并规范化 LLM 返回的 tickets（含 evidence / counter_evidence / structure_scores）。"""
+    out: List[Dict] = []
+    if not res or not isinstance(res.get("tickets"), list):
+        return out
+    for t in res["tickets"]:
+        try:
+            reds = sorted(int(x) for x in t["reds"])
+            blue = int(t["blue"])
+            conf = float(t.get("confidence", 50))
+            if len(set(reds)) != 6 or not all(1 <= x <= R_MAX for x in reds):
+                continue
+            if not 1 <= blue <= B_MAX:
+                continue
+            out.append({
+                "reds": reds, "blue": blue, "method": f"llm:{method_name}",
+                "confidence": conf,
+                "reasoning": str(t.get("reasoning", ""))[:300],
+                "patterns_used": [str(x) for x in t.get("patterns_used", [])],
+                "evidence": t.get("evidence") if isinstance(t.get("evidence"), dict) else {},
+                "counter_evidence": (t.get("counter_evidence")
+                                     if isinstance(t.get("counter_evidence"), list) else []),
+                "structure_scores": (t.get("structure_scores")
+                                     if isinstance(t.get("structure_scores"), dict) else {}),
+            })
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _pick_verify_cfg(model_cfgs: List[Dict]) -> Optional[Dict]:
+    """第三轮校验模型：优先 LOTT_LLM_VERIFY_MODEL，否则回退第一个可用模型。"""
+    if config.LLM_VERIFY_MODEL:
+        for c in model_cfgs:
+            if c.get("model") == config.LLM_VERIFY_MODEL or c.get("name") == config.LLM_VERIFY_MODEL:
+                return c
+    return model_cfgs[0] if model_cfgs else None
+
+
 def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
-                rng: random.Random, llm_samples: Optional[int] = None) -> List[Dict]:
+                rng: random.Random, llm_samples: Optional[int] = None,
+                llm_verify: Optional[bool] = None) -> List[Dict]:
     """多模型 LLM 采样生成候选（失败自动降级为空）。
 
     llm_samples: 覆盖全局 LLM_SAMPLES（离线评估可传 1 以控制成本与时长）。
+    llm_verify: 是否执行第三轮校验（默认跟随 config.LLM_VERIFY_ENABLED）。
     """
     from concurrent.futures import ThreadPoolExecutor
     if config.LLM_DISABLED:
@@ -184,7 +262,8 @@ def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
     obs = llm_client.chat_json(
         llm_client.SYSTEM_BASE,
         llm_client.observations_prompt(
-            llm_client.compact_stats(ctx["stats"]), ctx["recent"], ctx["patterns"]),
+            llm_client.compact_stats(ctx["stats"]), ctx["recent"], ctx["patterns"],
+            feedback=ctx.get("feedback")),
         max_tokens=1600, temperature=0.7, model_cfg=model_cfgs[0],
     )
     if obs is None:
@@ -198,30 +277,11 @@ def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
         res = llm_client.chat_json(
             llm_client.SYSTEM_BASE,
             llm_client.tickets_prompt(
-                llm_client.compact_stats(ctx["stats"]), ctx["recent"], ctx["patterns"], obs),
+                llm_client.compact_stats(ctx["stats"]), ctx["recent"], ctx["patterns"], obs,
+                feedback=ctx.get("feedback")),
             max_tokens=2000, temperature=0.9, model_cfg=cfg,
         )
-        out: List[Dict] = []
-        if not res or not isinstance(res.get("tickets"), list):
-            return out
-        for t in res["tickets"]:
-            try:
-                reds = sorted(int(x) for x in t["reds"])
-                blue = int(t["blue"])
-                conf = float(t.get("confidence", 50))
-                if len(set(reds)) != 6 or not all(1 <= x <= R_MAX for x in reds):
-                    continue
-                if not 1 <= blue <= B_MAX:
-                    continue
-                out.append({
-                    "reds": reds, "blue": blue, "method": f"llm:{cfg['name']}",
-                    "confidence": conf,
-                    "reasoning": str(t.get("reasoning", ""))[:300],
-                    "patterns_used": [str(x) for x in t.get("patterns_used", [])],
-                })
-            except (TypeError, ValueError):
-                continue
-        return out
+        return _parse_tickets_response(res, cfg["name"])
 
     n_samples = int(llm_samples) if llm_samples else config.LLM_SAMPLES
     calls = [model_cfgs[i % n_models] for i in range(n_samples)]
@@ -229,6 +289,33 @@ def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
         futures = [ex.submit(_ticket_call, cfg) for cfg in calls]
         for f in futures:
             tickets.extend(f.result())
+
+    # 第三轮校验（M3.2）：critique → 发现问题才 refine（低温 + 校验模型）
+    if llm_verify is None:
+        llm_verify = config.LLM_VERIFY_ENABLED
+    if llm_verify and tickets:
+        vcfg = _pick_verify_cfg(model_cfgs)
+        if vcfg:
+            try:
+                critique = llm_client.chat_json(
+                    llm_client.SYSTEM_BASE,
+                    llm_client.critique_prompt(
+                        llm_client.compact_stats(ctx["stats"]), ctx["recent"], ctx["patterns"],
+                        ctx.get("feedback") or {}, tickets),
+                    max_tokens=600, temperature=0.2, model_cfg=vcfg)
+                if critique and critique.get("verdict") == "problematic":
+                    refined = llm_client.chat_json(
+                        llm_client.SYSTEM_BASE,
+                        llm_client.refine_prompt(
+                            llm_client.compact_stats(ctx["stats"]), critique, tickets,
+                            feedback=ctx.get("feedback")),
+                        max_tokens=2000, temperature=0.2, model_cfg=vcfg)
+                    parsed = _parse_tickets_response(refined, vcfg.get("model", "verify"))
+                    if parsed:
+                        tickets = parsed
+                        print(f"[llm] 第三轮校验已修正选号（{len(parsed)} 注，校验模型 {vcfg.get('model')}）")
+            except Exception as ex:  # noqa: BLE001
+                print(f"[llm] 第三轮校验异常，保留原候选: {ex}")
     return tickets
 
 
@@ -255,7 +342,8 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
                  n_tickets: Optional[int] = None, persist: bool = True,
                  use_ml: Optional[bool] = None,
                  rng: Optional[random.Random] = None,
-                 llm_samples: Optional[int] = None) -> Dict:
+                 llm_samples: Optional[int] = None,
+                 llm_verify: Optional[bool] = None) -> Dict:
     """对下一期生成预测。
 
     use_ml: 是否把 M2 ML 概率模型（GBDT+RF 集成）并入 Brier 加权融合；
@@ -308,7 +396,8 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
 
     # LLM 候选
     llm_cands = llm_tickets(draws, stats, patterns, rng,
-                               llm_samples=llm_samples) if use_llm else []
+                               llm_samples=llm_samples,
+                               llm_verify=llm_verify) if use_llm else []
     candidates.extend(llm_cands)
     llm_models_used = sorted({
         t["method"].split(":", 1)[1] for t in llm_cands if t["method"].startswith("llm:")

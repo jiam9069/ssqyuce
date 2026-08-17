@@ -83,6 +83,7 @@ def run_llm_eval(draws: List[Dict], issues: Optional[int] = None,
     runs: Dict[str, List[Dict]] = {ch: [] for ch in CHANNELS}
     usage: Dict[str, Dict] = {ch: {"tokens": 0, "cost_usd": 0.0,
                                    "duration_ms": 0, "calls": 0} for ch in CHANNELS}
+    llm_empty_issues = 0   # LLM 通道失败（无候选）的期数，如实计入口径
     per_metric: Dict[str, Dict[str, List[float]]] = {
         ch: {k: [] for k in ("red_hits_mean", "blue_hit_rate", "prize_rate_ge5", "roi")}
         for ch in CHANNELS}
@@ -123,11 +124,17 @@ def run_llm_eval(draws: List[Dict], issues: Optional[int] = None,
         res_llm = E.predict_next(history, use_llm=True, n_tickets=n_tickets,
                                  persist=False, use_ml=False,
                                  rng=random.Random(seed * 7919 + i + 1),
-                                 llm_samples=1)   # 评估降本：每期仅 1 次 LLM 选号采样
+                                 llm_samples=1,       # 评估降本：每期仅 1 次 LLM 选号采样
+                                 llm_verify=False)   # 校验轮仅生产启用（成本/时延考量，口径见 note）
         dt_ms = int((time.time() - t0) * 1000)
         us = llm_client.usage_snapshot()
         tokens = (us["prompt_chars"] + us["completion_chars"]) // 4
-        runs["stat_llm"].append(EV.tickets_result(_safe(res_llm["tickets"]), target))
+        llm_cands = res_llm["tickets"]
+        if not llm_cands:
+            # LLM 通道失败（上游超时/无候选）→ 生产口径为回退纯统计输出，如实记录
+            llm_empty_issues += 1
+            llm_cands = res_stat["tickets"]
+        runs["stat_llm"].append(EV.tickets_result(_safe(llm_cands), target))
         usage["stat_llm"]["tokens"] += tokens
         usage["stat_llm"]["cost_usd"] += tokens / 1e6 * config.LLM_EVAL_PRICE_PER_1M
         usage["stat_llm"]["duration_ms"] += dt_ms
@@ -233,6 +240,7 @@ def run_llm_eval(draws: List[Dict], issues: Optional[int] = None,
         "tickets": n_tickets,
         "seed": seed,
         "llm_samples": 1,
+        "llm_empty_issues": llm_empty_issues,
         "elapsed_seconds": elapsed,
         "channels": summary_meta,
         "per_issue": per_issue,
@@ -242,6 +250,9 @@ def run_llm_eval(draws: List[Dict], issues: Optional[int] = None,
             "三通道 walk-forward（每期只用此前数据）。Δ 与 paired p 值回答「LLM 值不值开」；"
             "random 为同注数均匀随机基线。LLM 通道存在模型噪声，stat/random 通道固定种子可复现。"
             "cost 为按 token 估算（LOTT_LLM_EVAL_PRICE_PER_1M，默认 $1/1M token），仅作展示。"
+            "评估口径：stat_llm = 观察 + 选号两轮（llm_samples=1），第三轮校验（M3.2）仅生产启用，"
+            "其边际成本/收益待后续增量评估。若上游 LLM 中途失败，该期 stat_llm 如实回退为 stat 输出，"
+            "并在指标旁标注 llm_empty_issues（LLM 失败期数）。"
         ),
     }
     print(f"[llm_eval] 完成 run_id={run_id} 期数={issues_actual} 耗时={elapsed}s，"

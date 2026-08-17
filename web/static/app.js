@@ -176,6 +176,18 @@ function renderPredictions(res) {
       : "<span class='badge'>" + escHtml(t.method) + "</span>";
     const rt = t.reasoning ? '<div class="reasoning">💬 ' + escHtml(t.reasoning) + '</div>' : '';
     const used = (t.patterns_used || []).length ? '<div class="reasoning">规律引用：' + escHtml(t.patterns_used.join("、")) + '</div>' : '';
+    let evd = "";
+    if (t.evidence && typeof t.evidence === "object" && Object.keys(t.evidence).length) {
+      const evRows = Object.entries(t.evidence).map(([k,v]) => "<div>· " + escHtml(k) + "：" + escHtml(String(v)) + "</div>").join("");
+      evd += '<div class="reasoning">📌 依据：' + evRows + '</div>';
+    }
+    if (t.counter_evidence && t.counter_evidence.length) {
+      evd += '<div class="reasoning">⚠️ 反证：' + escHtml(t.counter_evidence.join("；")) + '</div>';
+    }
+    if (t.structure_scores && typeof t.structure_scores === "object" && Object.keys(t.structure_scores).length) {
+      const sc = Object.entries(t.structure_scores).map(([k,v]) => escHtml(k) + "=" + v).join(" · ");
+      evd += '<div class="reasoning">📐 结构分：' + sc + '</div>';
+    }
     const confColor = t.confidence > 60 ? "var(--green)" : t.confidence > 40 ? "var(--gold)" : "var(--muted)";
     return '<div class="ticket">' +
       '<div class="row1">' +
@@ -186,7 +198,7 @@ function renderPredictions(res) {
         "<button class='copy-btn' onclick='copyTicket(" + i + ")' title='复制'>📋</button>" +
         "<button class='fav-btn' onclick='toggleFav(" + i + ")' title='收藏'>☆</button>" +
       '</div>' +
-      (rt || used ? '<div class="detail">' + rt + used + '</div>' : '') +
+      (rt || used || evd ? '<div class="detail">' + rt + used + evd + '</div>' : '') +
     '</div>';
   }).join("");
   $("#predNote").textContent = res.note || "";
@@ -848,18 +860,37 @@ async function runBacktest() {
 async function runMining() {
   setBusy("#btnMine", "挖掘中…");
   try {
-    const r = await api("/api/mining/run?min_start=300", {method:"POST"});
+    const r = await api("/api/mining/run?min_start=300&engine=rf", {method:"POST"});
     if (!r.ok) throw new Error(r.error || "挖掘失败");
-    if (r.task_id) {
-      toast("挖掘任务已提交，ID: " + r.task_id);
-      runTask(r.task_id, () => Promise.resolve(r));
-    } else if (r.result) {
-      toast("挖掘完成");
+    if (r.result) {
+      toast("挖掘完成: engine=" + (r.result.engine || "rf") + "，候选 " + r.result.n_candidates +
+            "，B级+ " + r.result.accepted + "，通过率 " + pct(r.result.pass_rate));
       const patR = await api("/api/patterns");
       renderPatterns(patR.items, patR.summary);
+      loadMiningReports();
     }
+    if (r.task_id) toast("挖掘任务 ID: " + r.task_id);
   } catch(e) { toast("挖掘失败: " + e.message); }
   setFree("#btnMine", "⛏️ 自动挖掘");
+}
+
+async function loadMiningReports() {
+  try {
+    const rr = await api("/api/mining/reports?limit=20");
+    renderMiningReports(rr.runs || []);
+  } catch(e) {}
+}
+
+function renderMiningReports(runs) {
+  const el = $("#miningRuns");
+  if (!el) return;
+  el.innerHTML = runs.length
+    ? "<b>⛏️ 挖掘运行记录（M3.3）</b><br>" +
+      runs.map(r => "· " + (r.created_at || "") + " <code>" + r.engine + "</code> · 特征 " +
+        ((r.params && r.params.n_features) || "?") + " 维 · 候选 " + r.candidates +
+        " · B级+ " + r.accepted + " · 通过率 " + pct(r.pass_rate) +
+        " · avg_lift " + fmt(r.avg_lift, 4)).join("<br>")
+    : "";
 }
 
 // ==================== 导出 ====================
@@ -1093,6 +1124,7 @@ async function loadAll() {
       const llmRep = await api("/api/eval/llm/latest");
       renderLlmEval(llmRep);
     } catch(e) {}
+    loadMiningReports();
   } catch(e) {
     toast("加载失败: " + e.message);
   }
