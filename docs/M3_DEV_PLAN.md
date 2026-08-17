@@ -221,3 +221,20 @@ CREATE TABLE IF NOT EXISTS mining_runs (
 - [ ] README「最近升级概要」追加 v0.7.0（M3）小节
 - [ ] docs 三件套（UPGRADE_PLAN / M3_M4_PLAN / M3_DEV_PLAN）同步提交
 - [ ] 全链路回归通过，线上 health OK
+
+---
+
+## 9. 实施状态（2026-08-17 逐条核销）
+
+| 里程碑 | 状态 | 证据 |
+|---|---|---|
+| M3.0 工程奠基 | ✅ | 缓存号统一 v=20260816.6→20260817.7；CLI doctor；config M3 参数块；任务系统复用 |
+| M3.1 LLM 离线评估 | ✅ | llm_eval.py + llm_eval_results 表 + POST/GET /api/eval/llm/* + 前端报表卡；3 期冒烟完成（stat 1.333 / stat_llm 0.667 / random 1.0） |
+| M3.2 LLM 通道完善 | ✅ | evidence/counter_evidence/structure_scores schema 落库+前端展示；回测明细(n/p_adj/CI)与上期回馈注入 prompt；第三轮校验默认开（LOTT_LLM_VERIFY=1） |
+| M3.3 挖掘增强 | ✅ | 特征 20→40 维；LightGBM→RF→lift 自动回退；mining_runs 表+报告 API+前端；冒烟 mine_20260817_164538（8 候选/1 A 级/40 特征） |
+| M3.4 规律研究台 | ✅ | 红牌预警（近 20 期边际下滑/连续负边际）；多选对比（边际序列叠加图）；触发时间线（chPatSeries 已有+索引修复） |
+| M3.5 回放诊断 | ✅ | POST /api/replay/diagnose 最近 N 期反事实回放；冒烟 20 期红球 1.197/注 vs 随机 1.09；v0.7.0 版本升级三处一致 |
+| 工程加固 | ✅ | LLM 单次 600s 硬上限+重试超时 120s；predict_next LLM 异常兜底降级；sklearn n_jobs=1 防死锁；sqlite 侧边文件 gitignore |
+| 60 期全量评估 | 🔄 | task llm_eval_6fd26b28 后台跑批中（预计 2~4h）；完成后按决策规则定默认配置 |
+
+提交记录：2f7064f → ad94a24 → de573d6 → e306815 → 0b6b1bd → 7ac185f（推送 github.com:jiam9069/ssqyuce main）
