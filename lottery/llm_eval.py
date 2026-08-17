@@ -13,12 +13,33 @@
 from __future__ import annotations
 
 import random
+import threading
 import time
 from typing import Callable, Dict, List, Optional
 
 import numpy as np
 
 from . import config, db, engine as E, evaluate as EV, llm_client
+
+
+def _run_with_timeout(fn: Callable, timeout_s: float):
+    """在 daemon 线程中执行 fn，硬超时兜底（上游连接级 stall 时避免拖死评估）。"""
+    box: Dict[str, object] = {}
+
+    def _worker() -> None:
+        try:
+            box["r"] = fn()
+        except BaseException as e:  # noqa: BLE001
+            box["e"] = e
+
+    th = threading.Thread(target=_worker, daemon=True)
+    th.start()
+    th.join(timeout_s)
+    if th.is_alive():
+        raise TimeoutError(f"LLM 通道执行超时（>{timeout_s:.0f}s），该期按失败计")
+    if "e" in box:
+        raise box["e"]  # type: ignore[arg-type]
+    return box.get("r")
 
 CHANNELS = ("stat", "stat_llm", "random")
 CHANNEL_LABEL = {"stat": "纯统计", "stat_llm": "统计+LLM", "random": "随机基线"}
@@ -118,20 +139,27 @@ def run_llm_eval(draws: List[Dict], issues: Optional[int] = None,
                                   rng=random.Random(seed * 7919 + i))
         runs["stat"].append(EV.tickets_result(_safe(res_stat["tickets"]), target))
 
-        # ---- stat_llm 通道（计量 LLM 用量）----
+        # ---- stat_llm 通道（计量 LLM 用量；看门狗防上游连接级挂起）----
         llm_client.usage_reset()
         t0 = time.time()
-        res_llm = E.predict_next(history, use_llm=True, n_tickets=n_tickets,
-                                 persist=False, use_ml=False,
-                                 rng=random.Random(seed * 7919 + i + 1),
-                                 llm_samples=1,       # 评估降本：每期仅 1 次 LLM 选号采样
-                                 llm_verify=False)   # 校验轮仅生产启用（成本/时延考量，口径见 note）
+        try:
+            res_llm = _run_with_timeout(
+                lambda: E.predict_next(history, use_llm=True, n_tickets=n_tickets,
+                                       persist=False, use_ml=False,
+                                       rng=random.Random(seed * 7919 + i + 1),
+                                       llm_samples=1,   # 评估降本：每期仅 1 次 LLM 选号采样
+                                       llm_verify=False),  # 校验轮仅生产启用（口径见 note）
+                timeout_s=900,
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"[llm_eval] stat_llm 通道异常/超时，该期回退 stat 输出: {e}")
+            res_llm = {"tickets": []}
         dt_ms = int((time.time() - t0) * 1000)
         us = llm_client.usage_snapshot()
         tokens = (us["prompt_chars"] + us["completion_chars"]) // 4
-        llm_cands = res_llm["tickets"]
+        llm_cands = res_llm["tickets"] if res_llm else []
         if not llm_cands:
-            # LLM 通道失败（上游超时/无候选）→ 生产口径为回退纯统计输出，如实记录
+            # LLM 通道失败（上游超时/连接挂起/无候选）→ 生产口径为回退纯统计输出，如实记录
             llm_empty_issues += 1
             llm_cands = res_stat["tickets"]
         runs["stat_llm"].append(EV.tickets_result(_safe(llm_cands), target))
