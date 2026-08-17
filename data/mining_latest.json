@@ -1,0 +1,49 @@
+{
+  "run_id": "mine_20260817_164538",
+  "engine": "rf",
+  "n_features": 40,
+  "n_candidates": 8,
+  "accepted": 1,
+  "grades": {
+    "A": 1,
+    "B": 0,
+    "C": 7
+  },
+  "avg_lift": 0.0525,
+  "pass_rate": 0.125,
+  "elapsed_seconds": 774.1,
+  "features_used": [
+    [
+      "omit_avg",
+      0.0621
+    ],
+    [
+      "sum_value",
+      0.058
+    ],
+    [
+      "span_value",
+      0.0541
+    ],
+    [
+      "tail_omit",
+      0.0518
+    ],
+    [
+      "cold_concentrate",
+      0.0509
+    ],
+    [
+      "omit_ratio",
+      0.0502
+    ],
+    [
+      "zone_self_hot_50",
+      0.0468
+    ],
+    [
+      "neighbor_omit_avg",
+      0.0464
+    ]
+  ]
+}

@@ -209,7 +209,8 @@ def _feature_importance_ml(X: np.ndarray, y: np.ndarray, engine: str = "rf") -> 
             engine = "rf"
     if engine == "rf":
         from sklearn.ensemble import RandomForestClassifier
-        model = RandomForestClassifier(n_estimators=120, random_state=42, n_jobs=-1)
+        # n_jobs=1：避免 uvicorn 线程池内 loky/OpenMP 进程派发死锁（单核 VPS）
+        model = RandomForestClassifier(n_estimators=120, random_state=42, n_jobs=1)
     try:
         assert model is not None
         model.fit(X, y)
@@ -363,6 +364,8 @@ def run_mining(
 
     # 6. 入库
     if save_to_db:
+        for r in results:
+            r.setdefault("sample_size", r.get("n", 0))   # backtest 结果无此键，落库前补齐
         db.save_pattern_results(results)
         print(f"[mining] 已入库 {len(results)} 条挖掘规律")
 
