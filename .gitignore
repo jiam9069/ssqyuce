@@ -9,6 +9,5 @@ __pycache__/
 # 运行时数据（含密钥与训练产物，禁止入库）
 data/llm_config.json
 data/ml_models/
-data/*-journal
-data/*-wal
-data/*-shm
+data/methods_config.json
+

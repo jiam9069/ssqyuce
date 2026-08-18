@@ -120,6 +120,61 @@
 
 ---
 
+## 3.7 M4.1 首个切片实施状态（v0.8.0）
+
+- ✅ `eval_meta`：保存预测方法、版本、构建标识、LLM 状态与配置快照；
+- ✅ `eval_details`：按期号 / 方法 / 注序保存逐注红蓝命中、奖级、奖金、成本与净收益；
+- ✅ 在线对照兼容旧预测，并幂等写入 M4.1 明细；
+- ✅ `/api/eval/cumulative`：按方法输出累计指标与逐期明细；
+- ✅ `/api/eval/meta`：查询预测元数据快照；
+- ✅ `/api/eval/export.csv`：导出累计评估逐注明细；
+- ✅ 评估报告增加累计报表与 CSV 导出入口；
+- ✅ 版本基线更新为 v0.8.0 / 2026-08-M4.1，M3 标记完成、M4 标记进行中；
+- ✅ Python 编译检查与 M4 评估存储幂等冒烟通过。
+
+> 真实数据验收（2026-08）：数据 3490 期，最新期 2026093；已有预测为未开奖期 2026094，
+> 因此 `eval_results` / `eval_meta` / `eval_details` 尚无真实对照记录。在线对照、累计 API、CSV
+> 路由和原始数据解析已通过只读检查；待 2026094 开奖后执行首次真实对照。
+
+## 3.8 M4.2 方法开关实施状态
+
+- ✅ `lottery/methods.py`：`implement_spec` / `normalize_method` / `is_enabled` / `filter_candidates`
+  四个纯标准库函数，解析 `LOTT_METHODS`（默认全部启用；`-` 前缀 = 拒绝列表，无前缀 = 允许列表，族名/全名皆可）；
+- ✅ `engine.predict_next` 接入开关：关闭的 stat 基线不进 Brier 融合（全关回退均匀兜底），
+  LLM 通道关闭不发起调用（省成本），uniform/最终候选均按开关过滤；
+- ✅ `.env.example` 补充 `LOTT_METHODS` 示例；`tests/test_m4_2_methods.py` 覆盖开关语义。
+- ⏳ 待办：60 期后 paired 检验建议、escalation 决策规则落地（见 M4.2 后续）。
+
+## 3.9 M4.2 方法开关（配置/API/前端）实施状态
+
+> 在 3.8 的 `lottery/methods.py` 纯函数与引擎接入基础上，补齐运行模式、Web 配置
+> 与持久化，使方法 A/B 开关可在生产/研究两种模式下由管理员在设置页在线调整。
+
+- ✅ **运行模式 `LOTT_METHOD_MODE`（production / research，默认 production）**：
+  `research` 忽略 A/B 开关、全部方法启用（对应决策规则「未经 120 期 paired
+  验证的方法仅以研究模式存在」）；`production` 严格按 `LOTT_METHODS` 过滤。
+- ✅ **`config.set_methods(raw, mode)`**：运行时更新模块全局与 `os.environ`
+  （`LOTT_METHODS` / `LOTT_METHOD_MODE`），重解析 `METHODS_SPEC`，并写
+  `data/methods_config.json` 持久化（启动时 `_load_runtime_methods_config`
+  优先加载，重启不丢失，仅影响之后生成的预测）。
+- ✅ **`lottery/methods.py` 扩展**：`normalize_mode` / `effective_spec(mode, spec)`
+  / `validate_raw` / `registry()`（方法全名·族·中文说明注册表）。
+- ✅ **引擎按模式过滤**：`engine.predict_next` 改用 `METH.effective_spec(
+  config.METHOD_MODE, config.METHODS_SPEC)` 作为唯一生效规格，默认行为不变。
+- ✅ **API**：`GET /api/methods/status`（模式 / raw / 解析 spec / 生效 spec /
+  方法族开关 / 注册表描述）；`POST /api/methods/config`（接受 `{methods, mode}`，
+  校验 methods 字符串与 mode 合法性，`set_methods` 即时生效并持久化）。
+- ✅ **评估快照**：`db.save_eval_meta` 的 `config_snapshot_json` 增加
+  `method_mode` / `methods_raw` / `methods_spec`，历史评估不依赖当前配置。
+- ✅ **前端**：设置页新增「🎛️ 预测方法开关」卡片（模式下拉 + `LOTT_METHODS`
+  输入 + 保存 + 族开关/注册表表格）；评估页顶部显示当前方法开关（族启用状态）。
+- ✅ **测试**：`tests/test_m4_2_methods.py` 扩展 `normalize_mode` /
+  `effective_spec` / `validate_raw` / `registry` / `set_methods`；Python 编译检查与
+  API/配置冒烟通过。
+
+> 后续（不在本次范围）：60 期后 paired 检验自动给出「是否仍值得保留」建议、以及
+> 连续 120 期无显著差异时默认关闭并提示的 escalation 决策规则落地。
+
 ## 4. 里程碑时间建议
 
 | 里程碑 | 建议排期 | 关键交付 |

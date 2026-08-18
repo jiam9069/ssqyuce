@@ -41,6 +41,8 @@ def health():
         "version": config.APP_VERSION,
         "issues": db.count_draws(),
         "max_issue": db.max_issue(),
+        "eval_methods": [r["method"] for r in db.cumulative_eval(limit=1).get("methods", [])],
+        "app_build": config.APP_BUILD,
     }
 
 
@@ -176,6 +178,32 @@ def eval_backtest(issues: int = Query(120), n: int = Query(10)):
 def eval_online():
     from . import evaluate
     return evaluate.online_check()
+
+
+@app.get("/api/eval/cumulative")
+def eval_cumulative(method: Optional[str] = Query(None), limit: int = Query(120, ge=1, le=1000)):
+    """M4.1：按预测方法返回逐注事实与累计统计。"""
+    return db.cumulative_eval(method=method, limit=limit)
+
+
+@app.get("/api/eval/meta")
+def eval_meta(issue: Optional[str] = Query(None)):
+    return {"items": db.load_eval_meta(issue)}
+
+
+@app.get("/api/eval/export.csv")
+def eval_export_csv(method: Optional[str] = Query(None), limit: int = Query(1000, ge=1, le=5000)):
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+    report = db.cumulative_eval(method=method, limit=limit)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["issue", "method", "seq", "red_hits", "blue_hit", "prize_level", "reward", "ticket_cost", "net_return", "evaluated_at"])
+    for group in report["methods"]:
+        for row in group.get("rows", []):
+            writer.writerow([row.get(k, "") for k in ("issue", "method", "seq", "red_hits", "blue_hit", "prize_level", "reward", "ticket_cost", "net_return", "evaluated_at")])
+    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": "attachment; filename=eval_cumulative.csv"})
 
 
 # ---------- M3.1 LLM 离线评估 ----------
@@ -437,6 +465,49 @@ def test_llm_connection():
     if text:
         return {"ok": True, "time_ms": dt_ms, "reply": text.strip()[:100]}
     return {"ok": False, "error": "模型无返回（请检查 API 地址 / Key / 模型名）"}
+
+
+# ---------- M4.2 方法 A/B 开关（Web 设置页配置，写入 data/methods_config.json） ----------
+
+@app.get("/api/methods/status")
+def methods_status():
+    """当前方法开关：模式 / 原始字符串 / 解析规格 / 方法注册表 / 各方法族开关状态。"""
+    from . import methods as METH
+    st = config.methods_status()
+    eff = METH.effective_spec(config.METHOD_MODE, config.METHODS_SPEC)
+    st["effective"] = {"mode": eff.get("mode", "all"),
+                       "tokens": sorted(eff.get("tokens", set()))}
+    st["registry"] = METH.registry()
+    st["families"] = {fam: METH.is_enabled(fam, eff) for fam in METH.FAMILIES}
+    return st
+
+
+@app.post("/api/methods/config")
+def update_methods_config(payload: dict):
+    """更新方法开关：{methods, mode}，立即生效并持久化，影响之后的预测。
+
+    methods: LOTT_METHODS 字符串（逗号/空格分隔；- 前缀 = 关闭；留空 = 全部启用）；
+    mode: production（严格按开关过滤）/ research（忽略开关、全部启用）。
+    """
+    from . import methods as METH
+    raw = payload.get("methods")
+    mode = payload.get("mode")
+    if raw is not None and not isinstance(raw, str):
+        return JSONResponse({"ok": False, "error": "methods 必须是字符串"},
+                            status_code=400)
+    if raw is not None:
+        err = METH.validate_raw(raw)
+        if err:
+            return JSONResponse({"ok": False, "error": err}, status_code=400)
+    if mode is not None:
+        m = str(mode).strip().lower() if isinstance(mode, str) else None
+        if m not in METH.MODES:
+            return JSONResponse(
+                {"ok": False, "error": f"mode 必须是 {'/'.join(METH.MODES)}，收到 {mode!r}"},
+                status_code=400)
+        mode = m
+    st = config.set_methods(raw, mode)
+    return {"ok": True, **st}
 
 
 # ---------- M2 ML 概率模型 ----------

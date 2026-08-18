@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from . import backtest as BT
-from . import config, db, features as F, llm_client, ml_model, models as M
+from . import config, db, features as F, llm_client, methods as METH, ml_model, models as M
 
 R_MAX, B_MAX = 33, 16
 
@@ -353,6 +353,11 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
         use_llm = not config.LLM_DISABLED
     if use_ml is None:
         use_ml = config.ML_ENABLED
+    # M4.2 方法 A/B 开关：按运行模式取生效规格（production=严格过滤 / research=全部启用）
+    methods_spec = METH.effective_spec(config.METHOD_MODE, config.METHODS_SPEC)
+    # 关闭的通道不生成候选（LLM 同时省 API 成本）
+    use_llm = use_llm and METH.is_enabled("llm", methods_spec)
+    use_ml = use_ml and METH.is_enabled("ml", methods_spec)
     n_tickets = n_tickets or config.N_TICKETS
     issue = BT.next_issue(draws[-1]["issue"])
 
@@ -361,7 +366,11 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
     ctx = constraint_ctx(draws)
 
     # 统计模型 + M2 ML 概率模型 → 混合概率（Brier 加权融合）
-    bl = M.build_models(draws)
+    # M4.2：仅保留开关内启用的统计基线（stat:xxx）；全关时回退均匀分布兜底
+    bl = {name: m for name, m in M.build_models(draws).items()
+          if METH.is_enabled(f"stat:{name}", methods_spec)}
+    if not bl:
+        bl = {"uniform": M.uniform_model()}
     ml_entry, ml_extra = None, {}
     if use_ml and ml_model.HAS_SKLEARN and len(draws) >= config.ML_MIN_START + 10:
         if ml_model.ml_ready(draws):
@@ -387,12 +396,13 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
             if t:
                 t["method"] = "ml" if name == "ml" else f"stat:{name}"
                 candidates.append(t)
-    # 均匀对照
-    for _ in range(2):
-        t = sample_stat_ticket(None, None, ctx, rng, uniform=True)
-        if t:
-            t["method"] = "uniform"
-            candidates.append(t)
+    # 均匀对照（M4.2 开关同样适用）
+    if METH.is_enabled("uniform", methods_spec):
+        for _ in range(2):
+            t = sample_stat_ticket(None, None, ctx, rng, uniform=True)
+            if t:
+                t["method"] = "uniform"
+                candidates.append(t)
 
     # LLM 候选（任何异常都降级为纯统计，绝不让 LLM 拖死整次预测）
     llm_cands = []  # type: ignore
@@ -408,6 +418,8 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
     llm_models_used = sorted({
         t["method"].split(":", 1)[1] for t in llm_cands if t["method"].startswith("llm:")
     })
+    # M4.2 兜底：最终按生效开关过滤候选（allow/deny 模式下丢弃关闭通道的票）
+    candidates = METH.filter_candidates(candidates, methods_spec)
 
     # 去重 + 评分
     seen = set()
@@ -460,4 +472,6 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
     if persist:
         db.save_features(issue, stats)
         db.save_predictions(issue, picked)
+        # M4.1：保存方法、版本、模型与 LLM 配置快照，供开奖后长期对照
+        db.save_eval_meta(issue, picked, result=result)
     return result

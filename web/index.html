@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>双色球智能预测分析系统</title>
-<link rel="stylesheet" href="/static/style.css?v=20260817.8">
+<link rel="stylesheet" href="/static/style.css?v=20260817.9">
 <!-- ECharts CDN + 本地 fallback -->
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
   onerror="this.src='/static/vendor/echarts.min.js?v=20260817.7'"></script>
@@ -187,12 +187,16 @@
           <div class="eval-actions">
             <button onclick="runOfflineEval()">📊 离线评估</button>
             <button onclick="runOnline()">✔ 在线对照</button>
+            <button onclick="loadCumulativeEval()">📈 累计报表</button>
+            <button onclick="exportCumulativeEval()">⬇ 导出 CSV</button>
             <button id="btnMlEval" onclick="runMlEval()">🤖 ML 模型评估</button>
             <span id="mlEvalStatus" class="test-result"></span>
             <button id="btnLlmEval" onclick="runLlmEval()">🧠 LLM 离线评估</button>
             <span id="llmEvalStatus" class="test-result"></span>
           </div>
           <div id="evalArea"><div class="note">点击「离线评估」生成结果（约需 30~120 秒）。</div></div>
+          <div id="methodEvalLine" class="note" style="margin:6px 0;font-size:12px"></div>
+          <div id="cumulativeEvalArea" style="margin-top:12px;"><div class="note">📈 在线累计报表：点击「累计报表」加载按方法的长期对照。</div></div>
           <div id="mlEvalArea" style="margin-top:12px;"><div class="note">🤖 ML 概率模型状态加载中…</div></div>
           <div id="llmEvalArea" style="margin-top:12px;"><div class="note">🧠 LLM 三通道评估（stat / stat+LLM / random）：后台任务运行，完成后自动展示对比、paired p 值与成本。</div></div>
         </div>
@@ -273,6 +277,41 @@
               </div>
             </div>
 
+            <!-- 方法 A/B 开关（M4.2） -->
+            <div class="settings-card">
+              <div class="settings-card-head">
+                <div>
+                  <h3>🎛️ 预测方法开关</h3>
+                  <p class="settings-desc">控制哪些方法通道参与预测（stat 基线 / ML / LLM / uniform）。配置保存在服务器 data 目录，重启不丢失，仅影响之后生成的预测。</p>
+                </div>
+                <div class="llm-status-badge" id="methodsStatus">检测中…</div>
+              </div>
+
+              <div class="settings-body">
+                <div class="field">
+                  <label for="cfgMethodMode">运行模式</label>
+                  <select id="cfgMethodMode" onchange="toggleMethodModeHint(this.value)">
+                    <option value="production" selected>production · 生产模式（严格按开关过滤）</option>
+                    <option value="research">research · 研究模式（忽略开关，全部启用）</option>
+                  </select>
+                  <p class="field-hint" id="methodModeHint">生产模式：严格按下方开关过滤方法通道；研究模式：忽略开关、全部方法启用（用于对比实验，UI 明示）。</p>
+                </div>
+
+                <div class="field">
+                  <label for="cfgMethods">方法开关（LOTT_METHODS）</label>
+                  <input type="text" id="cfgMethods" placeholder="例如 -llm 或 stat,ml 或 stat:freq,llm（留空 = 全部启用）" autocomplete="off">
+                  <p class="field-hint">逗号/空格分隔；<code>-</code> 前缀 = 关闭这些方法；无前缀 = 只保留这些。可写族名（stat / llm / ml / uniform）或全名（stat:freq）。</p>
+                </div>
+
+                <div class="settings-actions">
+                  <button onclick="saveMethodsConfig()" class="primary">💾 保存方法配置</button>
+                  <span id="methodsSaveStatus" class="test-result"></span>
+                </div>
+
+                <div id="methodsRegistry" class="config-status" style="margin-top:6px;font-size:12px"></div>
+              </div>
+            </div>
+
           </div>
         </div>
       </section>
@@ -282,10 +321,10 @@
 
   
   
-      <footer>双色球智能预测分析系统 <span class="badge badge-ver" id="verText">v0.6.0</span>（M1 · M2 已上线）· 仅供研究参考 · 随机性诚实声明 · 数据源 e.17500.cn</footer>
+      <footer>双色球智能预测分析系统 <span class="badge badge-ver" id="verText">v0.8.0</span>（M1-M3 已上线 · M4.2 开发中）· 仅供研究参考 · 随机性诚实声明 · 数据源 e.17500.cn</footer>
 </div>
 
 <div id="toast"></div>
-<script src="/static/app.js?v=20260817.8"></script>
+<script src="/static/app.js?v=20260817.9"></script>
 </body>
 </html>

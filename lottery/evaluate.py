@@ -134,9 +134,17 @@ def online_check() -> Dict:
         preds = db.load_predictions(issue)
         if not preds:
             continue
-        res = tickets_result(preds, draw_by_issue[issue])
-        db.save_eval(issue, int(np.mean(res["red_hits"])), int(np.mean(res["blue_hits"])),
-                     res["reward"], len(preds))
+        # 兼容 M4.1 前生成的预测：首次对照时补写方法快照
+        if not db.load_eval_meta(issue):
+            db.save_eval_meta(issue, preds, result={"llm_used": any(str(t.get("method", "")).startswith("llm:") for t in preds)})
+        by_method = {}
+        for t in preds:
+            by_method.setdefault(str(t.get("method", "mixed")), []).append(t)
+        all_res = tickets_result(preds, draw_by_issue[issue])
+        db.save_eval(issue, int(np.mean(all_res["red_hits"])), int(np.mean(all_res["blue_hits"])),
+                     all_res["reward"], len(preds))
+        for method, method_tickets in by_method.items():
+            db.save_eval_details(issue, method, method_tickets, draw_by_issue[issue])
         checked += 1
     rows = db.load_eval()
     if rows:

@@ -79,7 +79,7 @@ function switchTab(name) {
   history.replaceState(null, "", "#" + name);
   $$(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
   $$(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + name));
-  if (name === "settings") loadLlmConfig();
+  if (name === "settings") { loadLlmConfig(); loadMethodsConfig(); }
   if (name === "analysis" && allFeatures) renderWindow(allFeatures);
   if (name === "patterns" && allPatterns.length) renderPatterns(allPatterns, _summary(allPatterns));
   if (name === "replay") populateReplaySelect();
@@ -709,6 +709,7 @@ async function runOnline() {
   try {
     const r = await api("/api/eval/online", {method:"POST"});
     renderOnline(r.rows || []);
+    await loadCumulativeEval();
     toast("已对照 " + (r.newly_checked || 0) + " 期");
   } catch(e) { toast("在线对照失败: " + e.message); }
   setFree("#btnOnline", "✔ 在线对照");
@@ -743,6 +744,30 @@ function renderEval(r) {
       tooltip:{trigger:"axis"}, legend:{textStyle:{color:"#8b949e"},top:0},
     });
   }
+}
+
+async function loadCumulativeEval() {
+  try {
+    const r = await api("/api/eval/cumulative?limit=120");
+    renderCumulativeEval(r);
+  } catch(e) { toast("累计报表加载失败: " + e.message); }
+}
+
+function exportCumulativeEval() {
+  window.open("/api/eval/export.csv?limit=1000", "_blank");
+}
+
+function renderCumulativeEval(r) {
+  const area = $("#cumulativeEvalArea");
+  if (!area) return;
+  const groups = r.methods || [];
+  if (!groups.length) {
+    area.innerHTML = "<div class='note'>暂无 M4.1 逐注评估事实。开奖后点击「在线对照」再生成累计数据。</div>";
+    return;
+  }
+  const rows = groups.map(g => "<tr><td>" + escHtml(g.method) + "</td><td>" + g.issues + "</td><td>" + g.tickets + "</td><td>" + fmt(g.red_hits_mean) + "</td><td>" + pct(g.blue_hit_rate) + "</td><td>" + pct(g.prize_rate_ge5) + "</td><td>¥" + Number(g.reward_total||0).toFixed(0) + "</td><td>" + pct(g.roi) + "</td></tr>").join("");
+  area.innerHTML = "<div class='note' style='margin-bottom:6px'>📈 M4.1 在线累计评估（逐注事实，最多 " + (r.sample_limit||120) + " 期）</div>" +
+    "<div class='scroll'><table><thead><tr><th>方法</th><th>期数</th><th>注数</th><th>红球均值</th><th>蓝球命中率</th><th>≥五等奖率</th><th>奖金</th><th>ROI</th></tr></thead><tbody>" + rows + "</tbody></table></div>";
 }
 
 function renderOnline(rows) {
@@ -1184,6 +1209,95 @@ async function testLlmConnection() {
   }
 }
 
+// ==================== 方法 A/B 开关（M4.2） ====================
+
+function setMethodsStatus(text, cls) {
+  const el = $("#methodsStatus");
+  if (!el) return;
+  el.textContent = text;
+  el.classList.remove("ok", "bad");
+  if (cls) el.classList.add(cls);
+  else el.style.color = "";
+}
+
+function toggleMethodModeHint(mode) {
+  const hint = $("#methodModeHint");
+  if (!hint) return;
+  hint.textContent = mode === "research"
+    ? "研究模式：忽略下方开关，全部方法通道启用 —— 用于方法对比实验（决策规则：未经 120 期 paired 验证的方法仅以研究模式存在）。"
+    : "生产模式：严格按下方开关过滤方法通道（stat 基线 / ML / LLM / uniform）。";
+}
+
+function renderMethodsRegistry(st) {
+  const reg = $("#methodsRegistry");
+  if (!reg) return;
+  const famNames = {stat:"统计基线", blend:"融合", llm:"LLM 推理", ml:"ML 模型", uniform:"均匀对照"};
+  const fams = st.families || {};
+  const rows = Object.keys(fams).map(f =>
+    "<tr><td>" + (famNames[f] || f) + "</td><td><code>" + f + "</code></td><td>" +
+    (fams[f] ? "<span class='badge gradeA'>启用</span>" : "<span class='badge gradeC'>关闭</span>") +
+    "</td></tr>").join("");
+  const regHtml = (st.registry || []).map(r =>
+    "<tr><td><code>" + escHtml(r.method) + "</code></td><td>" + escHtml(r.desc) + "</td></tr>").join("");
+  reg.innerHTML =
+    "<div style='margin:6px 0'><b>方法族开关（按生效模式）：</b>" +
+    "<div class='scroll' style='max-height:150px'><table><thead><tr><th>族</th><th>键</th><th>状态</th></tr></thead><tbody>" + rows + "</tbody></table></div></div>" +
+    "<div style='margin:6px 0'><b>方法注册表：</b>" +
+    "<div class='scroll' style='max-height:150px'><table><thead><tr><th>方法</th><th>说明</th></tr></thead><tbody>" + regHtml + "</tbody></table></div></div>";
+}
+
+async function loadMethodsConfig() {
+  try {
+    const st = await api("/api/methods/status");
+    setMethodsStatus(st.mode === "research" ? "🔬 研究模式" : "🏭 生产模式", "ok");
+    const modeSel = $("#cfgMethodMode");
+    if (modeSel) { modeSel.value = st.mode; toggleMethodModeHint(st.mode); }
+    const rawInput = $("#cfgMethods");
+    if (rawInput) rawInput.value = st.raw || "";
+    renderMethodsRegistry(st);
+    // 评估页方法开关指示
+    const line = $("#methodEvalLine");
+    if (line) {
+      const famNames = {stat:"统计", blend:"融合", llm:"LLM", ml:"ML", uniform:"均匀"};
+      const fams = st.families || {};
+      const parts = Object.keys(fams).map(f => (fams[f] ? "✅" : "⛔") + " " + (famNames[f] || f));
+      line.innerHTML = "🎛️ 方法开关：" + (st.mode === "research" ? "研究模式（全部启用）" : "生产模式") +
+        " · " + parts.join(" · ") + " &nbsp; <a href='#settings'>前往设置</a>";
+    }
+  } catch(e) {
+    console.error("loadMethodsConfig failed:", e);
+    setMethodsStatus("❌ 加载失败", "bad");
+  }
+}
+
+async function saveMethodsConfig() {
+  const status = $("#methodsSaveStatus");
+  const payload = {
+    methods: ($("#cfgMethods")?.value || "").trim(),
+    mode: $("#cfgMethodMode")?.value || "production",
+  };
+  if (status) status.innerHTML = '<span class="oktxt">⏳ 正在保存…</span>';
+  try {
+    const res = await api("/api/methods/config", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload),
+    });
+    if (res && res.ok) {
+      toast("方法配置已保存，立即生效（影响之后的预测）");
+      if (status) status.innerHTML = '<span class="oktxt">✓ 已保存，模式 ' + res.mode + '</span>';
+      setMethodsStatus(res.mode === "research" ? "🔬 研究模式" : "🏭 生产模式", "ok");
+      await loadMethodsConfig();
+    } else {
+      throw new Error((res && res.error) || "服务器无响应");
+    }
+  } catch(e) {
+    console.error("saveMethodsConfig failed:", e);
+    toast("保存失败: " + e.message);
+    if (status) status.innerHTML = '<span class="errtxt">✗ 保存失败：' + e.message + '</span>';
+  }
+}
+
 async function loadAll() {
   try {
     const [feat, pats, preds, health] = await Promise.all([
@@ -1211,12 +1325,15 @@ async function loadAll() {
     try {
       const ev = await api("/api/eval");
       renderOnline(ev);
+      const cumulative = await api("/api/eval/cumulative?limit=120");
+      renderCumulativeEval(cumulative);
     } catch(e) {}
     initMlStatus();
     try {
       const llmRep = await api("/api/eval/llm/latest");
       renderLlmEval(llmRep);
     } catch(e) {}
+    loadMethodsConfig();
     loadMiningReports();
   } catch(e) {
     toast("加载失败: " + e.message);

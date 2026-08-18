@@ -17,13 +17,13 @@ DATA_URL = "http://e.17500.cn/getData/ssq.TXT"
 
 # ---------- 版本信息（前端主页 / API / GitHub 说明统一引用） ----------
 
-APP_VERSION = "0.7.0"          # 语义化版本：M1 工作台 + M2 模型升级 + M3 研究闭环已上线
-APP_BUILD = "2026-08-M3"       # 构建标识（M4 规划中，见 docs/M3_M4_PLAN.md）
+APP_VERSION = "0.8.0"          # M4.1 在线累计评估首个切片
+APP_BUILD = "2026-08-M4.1"     # 构建标识（M4 长期运营）
 APP_MILESTONES = {
     "M1": {"status": "done",    "desc": "前端 Tab 工作台 + 规律库扩容 29 条 + 自动挖掘管道 + 任务系统"},
     "M2": {"status": "done",    "desc": "GBDT/RF 概率模型 + 滚动 Brier 加权融合 + 概率校准 + 蓝球独立投票 + ML walk-forward 评估"},
-    "M3": {"status": "planned", "desc": "研究闭环：LLM 三轮辩论完善与离线评估、挖掘管道增强、规律研究台"},
-    "M4": {"status": "planned", "desc": "长期运营：在线累积报表、方法 A/B 开关、通知、多源对账、运维工程"},
+    "M3": {"status": "done", "desc": "研究闭环：LLM 三轮辩论完善与离线评估、挖掘管道增强、规律研究台"},
+    "M4": {"status": "in_progress", "desc": "长期运营：在线累积报表、方法 A/B 开关、通知、多源对账、运维工程"},
 }
 
 # ---------- LLM 通道（全部来自环境变量，无仓库内置密钥/地址） ----------
@@ -54,6 +54,87 @@ LLM_SAMPLES = int(os.environ.get("LOTT_LLM_SAMPLES", "3"))          # LLM 多轮
 TICKETS_PER_LLM_CALL = int(os.environ.get("LOTT_TICKETS_PER_CALL", "5"))
 N_TICKETS = int(os.environ.get("LOTT_N_TICKETS", "10"))             # 最终输出注数
 LLM_TIMEOUT = float(os.environ.get("LOTT_LLM_TIMEOUT", "60"))
+
+# ---------- M4.2 方法 A/B 开关 ----------
+# LOTT_METHODS（逗号/空格分隔，未设置 = 全部启用）：可关闭/保留任意方法通道
+# （stat 各基线 / ML / LLM / uniform），令牌可写全名（stat:freq）或族名（stat）。
+# LOTT_METHOD_MODE：production（默认，严格按开关过滤）/ research（忽略开关、全部启用，
+# 供方法对比实验；与决策规则「未经 120 期 paired 验证的方法仅以研究模式存在」对应）。
+from . import methods as _methods
+
+METHODS_RAW = (os.environ.get("LOTT_METHODS") or "").strip()          # 原始开关字符串
+METHOD_MODE = _methods.normalize_mode(os.environ.get("LOTT_METHOD_MODE"))  # production / research
+METHODS_SPEC = _methods.implement_spec(METHODS_RAW)                   # 解析规格，供引擎过滤候选
+
+# 运行时方法配置持久化（Web 设置页写入，优先于 .env，重启不丢失）
+METHODS_CONFIG_FILE = DATA_DIR / "methods_config.json"
+
+
+def methods_status() -> Dict:
+    """当前方法开关状态：模式 / 原始字符串 / 解析规格（供 API 与前端展示）。"""
+    return {
+        "mode": METHOD_MODE,
+        "raw": METHODS_RAW,
+        "spec": {
+            "mode": METHODS_SPEC.get("mode", "all"),
+            "tokens": sorted(METHODS_SPEC.get("tokens", set())),
+        },
+    }
+
+
+def set_methods(raw: Optional[str] = None, mode: Optional[str] = None) -> Dict:
+    """运行时更新方法开关（Web 设置页写入，立即生效并持久化）。
+
+    raw: LOTT_METHODS 字符串（None = 不变）；mode: production / research（None = 不变）。
+    同时更新模块全局与 os.environ，供引擎“后续预测”即时读取。
+    """
+    global METHODS_RAW, METHOD_MODE, METHODS_SPEC
+    if raw is not None:
+        METHODS_RAW = str(raw or "").strip()
+        os.environ["LOTT_METHODS"] = METHODS_RAW
+    if mode is not None:
+        METHOD_MODE = _methods.normalize_mode(mode)
+        os.environ["LOTT_METHOD_MODE"] = METHOD_MODE
+    METHODS_SPEC = _methods.implement_spec(METHODS_RAW)
+    _save_methods_config()
+    print(f"[config] 方法开关已更新: mode={METHOD_MODE}, raw='{METHODS_RAW}'")
+    return methods_status()
+
+
+def _load_runtime_methods_config() -> None:
+    """启动时读取 data/methods_config.json（若存在），覆盖方法开关配置。"""
+    global METHODS_RAW, METHOD_MODE, METHODS_SPEC
+    try:
+        if not METHODS_CONFIG_FILE.exists():
+            return
+        conf = json.loads(METHODS_CONFIG_FILE.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        print("[config] 警告：methods_config.json 解析失败，忽略运行时方法配置")
+        return
+    changed = False
+    if "raw" in conf and isinstance(conf["raw"], str):
+        METHODS_RAW = conf["raw"].strip()
+        os.environ["LOTT_METHODS"] = METHODS_RAW
+        changed = True
+    if "mode" in conf and isinstance(conf["mode"], str):
+        METHOD_MODE = _methods.normalize_mode(conf["mode"])
+        os.environ["LOTT_METHOD_MODE"] = METHOD_MODE
+        changed = True
+    if changed:
+        METHODS_SPEC = _methods.implement_spec(METHODS_RAW)
+        print(f"[config] 已加载运行时方法配置（mode={METHOD_MODE}, raw='{METHODS_RAW}'）")
+
+
+def _save_methods_config() -> None:
+    """把当前方法开关写入 data/methods_config.json（与 llm_config.json 同目录）。"""
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        METHODS_CONFIG_FILE.write_text(
+            json.dumps({"mode": METHOD_MODE, "raw": METHODS_RAW},
+                       ensure_ascii=False, indent=2),
+            encoding="utf-8")
+    except OSError as e:
+        print(f"[config] 方法配置写入失败: {e}")
 
 # ---------- M3 LLM 离线评估与研究专用配置 ----------
 
@@ -153,3 +234,4 @@ RAW_DIR.mkdir(parents=True, exist_ok=True)
 
 # 加载运行时配置（须在 DATA_DIR 创建后）
 load_runtime_llm_config()
+_load_runtime_methods_config()

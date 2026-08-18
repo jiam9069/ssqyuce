@@ -99,6 +99,38 @@ CREATE TABLE IF NOT EXISTS llm_eval_results (
 );
 CREATE INDEX IF NOT EXISTS idx_llm_eval_run ON llm_eval_results(run_id);
 
+-- M4.1：预测方法与配置不可变快照
+CREATE TABLE IF NOT EXISTS eval_meta (
+  issue TEXT NOT NULL,
+  method TEXT NOT NULL,
+  app_version TEXT NOT NULL DEFAULT '',
+  app_build TEXT NOT NULL DEFAULT '',
+  model_weights_json TEXT DEFAULT '',
+  config_snapshot_json TEXT DEFAULT '',
+  llm_enabled INTEGER DEFAULT 0,
+  n_tickets INTEGER DEFAULT 0,
+  task_id TEXT DEFAULT '',
+  status TEXT DEFAULT 'predicted',
+  created_at REAL,
+  PRIMARY KEY (issue, method)
+);
+CREATE INDEX IF NOT EXISTS idx_eval_meta_method ON eval_meta(method);
+
+CREATE TABLE IF NOT EXISTS eval_details (
+  issue TEXT NOT NULL,
+  method TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  red_hits INTEGER NOT NULL,
+  blue_hit INTEGER NOT NULL,
+  prize_level INTEGER NOT NULL DEFAULT 0,
+  reward REAL NOT NULL DEFAULT 0,
+  ticket_cost REAL NOT NULL DEFAULT 2,
+  net_return REAL NOT NULL DEFAULT -2,
+  evaluated_at REAL,
+  PRIMARY KEY (issue, method, seq)
+);
+CREATE INDEX IF NOT EXISTS idx_eval_details_method ON eval_details(method);
+
 CREATE TABLE IF NOT EXISTS mining_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   run_id TEXT NOT NULL,
@@ -312,6 +344,107 @@ def recent_prediction_issues(n: int = 20) -> List[str]:
 
 
 # ---------- eval ----------
+
+def save_eval_meta(issue: str, tickets: List[Dict], result: Optional[Dict] = None,
+                   task_id: str = "") -> None:
+    """保存一次预测的方法/版本/配置快照，历史评估不依赖当前配置。"""
+    conn = get_conn()
+    now = time.time()
+    result = result or {}
+    methods: Dict[str, List[Dict]] = {}
+    for t in tickets:
+        methods.setdefault(str(t.get("method", "mixed")), []).append(t)
+    for method, rows in methods.items():
+        conn.execute(
+            """INSERT OR REPLACE INTO eval_meta
+               (issue,method,app_version,app_build,model_weights_json,config_snapshot_json,
+                llm_enabled,n_tickets,task_id,status,created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (issue, method, config.APP_VERSION, config.APP_BUILD,
+             json.dumps({"ml": result.get("ml", {}), "llm_models": result.get("llm_models", [])}, ensure_ascii=False),
+             json.dumps({
+                 "llm_used": bool(result.get("llm_used")),
+                 "n_tickets": len(rows),
+                 # M4.2：记录生成预测时的方法开关模式与规格快照，供开奖后长期对照
+                 "method_mode": getattr(config, "METHOD_MODE", "production"),
+                 "methods_raw": getattr(config, "METHODS_RAW", ""),
+                 "methods_spec": {
+                     "mode": config.METHODS_SPEC.get("mode", "all"),
+                     "tokens": sorted(config.METHODS_SPEC.get("tokens", set())),
+                 },
+             }, ensure_ascii=False),
+             int(bool(result.get("llm_used") or method.startswith("llm:"))), len(rows), task_id,
+             "predicted", now),
+        )
+    conn.commit()
+
+
+def save_eval_details(issue: str, method: str, tickets: List[Dict], draw: Dict) -> Dict:
+    """幂等保存逐注开奖对照明细，并返回方法汇总。"""
+    from . import evaluate as EV
+    conn = get_conn()
+    now = time.time()
+    conn.execute("DELETE FROM eval_details WHERE issue=? AND method=?", (issue, method))
+    total_reward = 0.0
+    red_hits, blue_hits, levels = [], [], []
+    for seq, ticket in enumerate(tickets, 1):
+        level = EV.prize_level(ticket["reds"], ticket["blue"], draw["reds"], draw["blue"])
+        red = len(set(ticket["reds"]) & set(draw["reds"]))
+        blue = int(ticket["blue"] == draw["blue"])
+        reward = float(EV.PRIZE_CASH.get(level, 0.0))
+        total_reward += reward
+        red_hits.append(red); blue_hits.append(blue); levels.append(level)
+        conn.execute(
+            """INSERT INTO eval_details
+               (issue,method,seq,red_hits,blue_hit,prize_level,reward,ticket_cost,net_return,evaluated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (issue, method, seq, red, blue, level, reward, 2.0, reward - 2.0, now),
+        )
+    conn.commit()
+    cost = len(tickets) * 2.0
+    return {"issue": issue, "method": method, "tickets": len(tickets),
+            "red_hits_mean": sum(red_hits) / max(1, len(red_hits)),
+            "blue_hit_rate": sum(blue_hits) / max(1, len(blue_hits)),
+            "best_level": max(levels) if levels else 0,
+            "reward": total_reward, "cost": cost,
+            "roi": (total_reward - cost) / max(1.0, cost)}
+
+
+def load_eval_meta(issue: Optional[str] = None) -> List[Dict]:
+    sql = "SELECT * FROM eval_meta"
+    args: List = []
+    if issue:
+        sql += " WHERE issue=?"; args.append(issue)
+    sql += " ORDER BY issue, method"
+    return [dict(r) for r in get_conn().execute(sql, args).fetchall()]
+
+
+def cumulative_eval(method: Optional[str] = None, limit: int = 120) -> Dict:
+    sql = "SELECT * FROM eval_details"
+    args: List = []
+    if method:
+        sql += " WHERE method=?"; args.append(method)
+    sql += " ORDER BY issue DESC, method, seq LIMIT ?"; args.append(int(limit) * 50)
+    rows = [dict(r) for r in get_conn().execute(sql, args).fetchall()]
+    by_method: Dict[str, Dict] = {}
+    for r in rows:
+        m = r["method"]
+        item = by_method.setdefault(m, {"method": m, "issues": set(), "tickets": 0, "red": [], "blue": [], "levels": [], "reward": 0.0, "cost": 0.0, "rows": []})
+        item["issues"].add(r["issue"]); item["tickets"] += 1
+        item["red"].append(r["red_hits"]); item["blue"].append(r["blue_hit"]); item["levels"].append(r["prize_level"])
+        item["reward"] += r["reward"]; item["cost"] += r["ticket_cost"]; item["rows"].append(r)
+    out = []
+    for item in by_method.values():
+        cost = item["cost"]
+        out.append({"method": item["method"], "issues": len(item["issues"]), "tickets": item["tickets"],
+                    "red_hits_mean": sum(item["red"]) / max(1, len(item["red"])),
+                    "blue_hit_rate": sum(item["blue"]) / max(1, len(item["blue"])),
+                    "prize_rate_ge5": sum(x >= 5 for x in item["levels"]) / max(1, len(item["levels"])),
+                    "reward_total": item["reward"], "cost_total": cost,
+                    "roi": (item["reward"] - cost) / max(1.0, cost),
+                    "rows": list(reversed(item["rows"][-limit:]))})
+    return {"methods": out, "sample_limit": limit}
+
 
 def save_eval(issue: str, red_hits: int, blue_hit: int, reward: float, ticket_count: int):
     conn = get_conn()
