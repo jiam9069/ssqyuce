@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>双色球智能预测分析系统</title>
-<link rel="stylesheet" href="/static/style.css?v=20260817.7">
+<link rel="stylesheet" href="/static/style.css?v=20260817.8">
 <!-- ECharts CDN + 本地 fallback -->
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
   onerror="this.src='/static/vendor/echarts.min.js?v=20260817.7'"></script>
@@ -52,7 +52,7 @@
             </select></label>
             <label><input type="checkbox" id="cfgLlm" checked> 启用 LLM 推理</label>
             <button class="primary" onclick="runPredict()">🎯 生成预测</button>
-            <button onclick="runPredict(true)">🔄 强制重新生成</button>
+            <button id="btnRegen" onclick="runPredict(true)">🔄 强制重新生成</button>
             <span id="predStatus" style="color:var(--muted);font-size:12px;margin-left:8px;"></span>
           </div>
           <div id="predList"></div>
@@ -65,7 +65,7 @@
           <div class="diagnose-input">
             <input id="diagReds" placeholder="红球，逗号分隔，如 1,4,7,12,28,31" maxlength="60">
             <input id="diagBlue" type="number" min="1" max="16" placeholder="蓝球 1-16">
-            <button onclick="runDiagnose()">诊断</button>
+            <button id="btnDiagnose" onclick="runDiagnose()">诊断</button>
           </div>
           <div id="diagResult"></div>
         </div>
@@ -286,6 +286,6 @@
 </div>
 
 <div id="toast"></div>
-<script src="/static/app.js?v=20260817.7"></script>
+<script src="/static/app.js?v=20260817.8"></script>
 </body>
 </html>

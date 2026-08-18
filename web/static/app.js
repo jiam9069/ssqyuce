@@ -141,22 +141,37 @@ function loadReplay() {
 
 // ==================== 预测 ====================
 
-async function runPredict(regenerate) {
+async function runPredict(regenerate, btnId) {
   if (regenerate === undefined) regenerate = false;
+  if (btnId === undefined) btnId = regenerate ? "#btnRegen" : "#btnPredict";
   const n = parseInt($("#cfgTickets")?.value || 10);
   const llm = $("#cfgLlm")?.checked;
-  setBusy("#btnPredict", "生成中…");
+  setBusy(btnId, regenerate ? "强制生成中…" : "生成中…");
+  $("#predStatus").textContent = "⏳ 正在请求服务器，请稍候…";
+  $("#predStatus").style.color = "var(--gold)";
   try {
     const r = await api("/api/predict?n_tickets=" + n + "&regenerate=" + regenerate + "&use_llm=" + llm, {method:"POST"});
     currentIssue = r.issue;
     localStorage.setItem("lastPredictIssue", r.issue);
     renderPredictions(r);
-    toast(r.from_cache ? "已复用缓存预测" : "预测已生成");
+    if (r.from_cache) {
+      $("#predStatus").textContent = "✅ 已复用缓存预测（期号 " + r.issue + "）";
+      $("#predStatus").style.color = "var(--green)";
+      toast("已复用缓存预测");
+    } else {
+      $("#predStatus").textContent = "✅ 预测已生成（期号 " + r.issue + "）";
+      $("#predStatus").style.color = "var(--green)";
+      toast("预测已生成");
+    }
     if (r.task_id) {
       runTask(r.task_id, () => Promise.resolve(r));
     }
-  } catch (e) { toast("预测失败: " + e.message); }
-  setFree("#btnPredict", "🎯 生成预测");
+  } catch (e) {
+    toast("预测失败: " + e.message);
+    $("#predStatus").textContent = "❌ 预测失败: " + e.message;
+    $("#predStatus").style.color = "var(--red)";
+  }
+  setFree(btnId, regenerate ? "🔄 强制重新生成" : "🎯 生成预测");
 }
 
 function renderPredictions(res) {
@@ -250,6 +265,8 @@ function runDiagnose() {
   if (reds.length !== 6 || new Set(reds).size !== 6 || blue < 1 || blue > 16) {
     toast("红球需6个不重复1-33整数，蓝球需1-16"); return;
   }
+  setBusy("#btnDiagnose", "诊断中…");
+  $("#diagResult").innerHTML = '<div class="note">⏳ 诊断运行中，请稍候…</div>';
   api("/api/diagnose?reds=" + reds.join(",") + "&blue=" + blue)
     .then(data => {
       if (data.error) { toast(data.error); return; }
@@ -291,7 +308,8 @@ function runDiagnose() {
           (data.note ? '<div class="note">' + escHtml(data.note) + '</div>' : '') +
         '</div>';
     })
-    .catch(e => toast("诊断失败: " + e.message));
+    .catch(e => toast("诊断失败: " + e.message))
+    .finally(() => setFree("#btnDiagnose", "诊断"));
 }
 
 function metricItem(label, value, sub) {
