@@ -23,8 +23,8 @@ BACKUP_DATA_URL = (os.environ.get("LOTT_BACKUP_DATA_URL") or "").strip() or None
 
 # ---------- 版本信息（前端主页 / API / GitHub 说明统一引用） ----------
 
-APP_VERSION = "0.8.0"          # M4.1 在线累计评估首个切片
-APP_BUILD = "2026-08-M4.1"     # 构建标识（M4 长期运营）
+APP_VERSION = "0.8.1"          # M4.5 工程加固首个切片
+APP_BUILD = "2026-08-M4.5"     # 构建标识（M4 长期运营）
 APP_MILESTONES = {
     "M1": {"status": "done",    "desc": "前端 Tab 工作台 + 规律库扩容 29 条 + 自动挖掘管道 + 任务系统"},
     "M2": {"status": "done",    "desc": "GBDT/RF 概率模型 + 滚动 Brier 加权融合 + 概率校准 + 蓝球独立投票 + ML walk-forward 评估"},

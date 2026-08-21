@@ -208,6 +208,7 @@
 ## 3.13 M4.5 工程加固首个切片
 
 - ✅ 新增 `lottery/migrations.py`：按版本顺序执行、记录 `schema_version`、重复启动幂等。
+- ✅ 当前发布版本统一为 `v0.8.1` / `2026-08-M4.5`，README、API 和运行时配置同步。
 - ✅ 存量库通过迁移补齐 `draws.source`、`predictions.evidence_json` 与对账审计表。
 - ✅ 配置 `LOTT_TOKEN` 后保护全部 `/api/*`；未配置时保持本地兼容开放。
 - ✅ `/api/health` 增加 `uptime_seconds`、鉴权状态与最近 5 条任务状态。

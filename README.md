@@ -15,7 +15,7 @@
 >
 > 系统输出仅供研究参考，不构成中奖概率与投注建议。**理性购彩，量力而行。**
 
-## 🚀 最近升级概要（M1-M3 已上线 · M4.3 开发中 · v0.8.0）
+## 🚀 最近升级概要（M1-M3 已上线 · M4.5 首个切片已上线 · v0.8.1）
 
 - **M1 前端工作台**：单页重构为 Tab 工作台（预测中心 / 数据分析 / 规律研究 / 历史回放 / 评估报告 / 数据管理 / 设置）；
   预测可配置（注数 / LLM 开关）、每注复制 / 收藏 / 展开依据、号码点选统计卡、「我的号码诊断」、历史预测回放；
@@ -30,6 +30,8 @@
   LLM 生成链路升级（回测规律明细/上期预测回馈/evidence 结构化/第三轮校验）；规律挖掘 40 维特征 +
   LightGBM/RandomForest 重要性 + mining_runs 运行报告；规律研究台新增红牌预警与多选对比；系统回放诊断；
   全程坚持"双色球为独立随机，任何声称的规律都需样本外 + 多重检验校正"的诚实口径。
+- **M4 长期运营**：在线累计评估与方法 A/B 开关、开奖通知、多源对账及审计历史；M4.5 新增 SQLite
+  `schema_version` 有序迁移、可选 `LOTT_TOKEN` Bearer 鉴权，以及 `/api/health` uptime/任务状态观测。
 
 > 下一步 **M3 研究闭环**、**M4 长期运营** 的完整规划（任务拆分 / 验收标准 / 工作量 / 风险）见
 > [docs/M3_M4_PLAN.md](docs/M3_M4_PLAN.md)；版本与里程碑状态也可通过 GET /api/info 与主页页脚徽标查看。
@@ -153,6 +155,10 @@ set -a && source .env && set +a      # 让 .env 里的环境变量生效（Windo
 | `LOTT_BOOT_PREDICT` | `1` | 容器启动时若下期无预测则自动生成 |
 | `PORT` | `18000` | Web 服务端口（Docker/环境变量） |
 | `LOTT_DB` | `data/ssq.db` | 数据库路径 |
+| `LOTT_TOKEN` | 空 | 配置后所有 `/api/*` 要求 `Authorization: Bearer <值>`；留空兼容开放访问 |
+| `LOTT_BACKUP_DATA_URL` | 空 | 可选备用开奖源；只读对账，不覆盖主库 |
+| `LOTT_METHODS` | 空 | M4.2 方法开关；空值=全部启用，支持族名/全名与 `-` 拒绝列表 |
+| `LOTT_METHOD_MODE` | `production` | `production` 应用开关；`research` 忽略开关用于对比实验 |
 
 **多模型示例**（写入 `.env`）：
 
@@ -237,6 +243,9 @@ Dockerfile / docker-compose.yml
 | GET | `/api/eval/recommendations` | M4.2 方法与 uniform 基线的保留/关闭筛查 |
 | GET | `/api/eval/export.csv` | 导出累计评估逐注 CSV |
 | GET | `/api/notify/status` | 开奖通知通道配置状态 |
+| GET | `/api/data/reconcile` | 执行一次备用源只读对账 |
+| GET | `/api/data/reconcile/history` | 查询多源对账审计历史 |
+| GET | `/api/health` | 健康状态、版本、uptime、鉴权状态与最近任务 |
 | GET | `/api/ml/status` | ML 概率模型状态（是否就绪 / 已训练） |
 | POST | `/api/ml/eval` | ML walk-forward 评估（Brier/log-loss/校准/paired，约 2-5 分钟） |
 | POST | `/api/mining/run` | 运行规律自动挖掘 |
@@ -245,6 +254,14 @@ Dockerfile / docker-compose.yml
 
 
 ## 版本记录
+
+### v0.8.1（M4.5 工程加固，2026-08）
+
+- **版本统一**：`/api/health`、`/api/info`、主页状态与 README 统一为 v0.8.1 / `2026-08-M4.5`。
+- **SQLite 迁移**：新增 `schema_version` 与有序、幂等迁移，支持存量库补齐来源字段、证据字段及对账审计表。
+- **可选鉴权**：配置 `LOTT_TOKEN` 后保护所有 `/api/*`，未配置时保持兼容开放。
+- **运行观测**：健康接口增加 uptime、鉴权启用状态和最近任务状态。
+- **M4.4 对账审计**：新增对账历史 API，记录只读多源对账结果；不覆盖主开奖数据。
 
 ### v0.7.0（M3 研究闭环，2026-08 上线）
 
@@ -278,10 +295,11 @@ Dockerfile / docker-compose.yml
 ## 已知限制与后续方向
 
 - LLM 通道依赖第三方兼容端点，支持任意 OpenAI 兼容服务与多模型自定义（主通道 + 附加通道）；
-- **LLM 离线评估尚未落地**（M3 计划）：目前离线评估默认关闭 LLM，M3 将做 60-120 期 walk-forward
-  的「纯统计 / 统计+LLM / 随机」三方对比，量化 LLM 真实贡献与成本；
-- 可扩展：更多规律假设（含官方"期号尾数""生肖"等民俗说法，统一送入回测证伪）、
-  交易所行情无关；在线累积评估报表、方法 A/B 开关、开奖通知、多源数据对账列入 M4。
+- M4.5 的 `LOTT_TOKEN` 是可选应用层鉴权；公网生产仍建议使用反向代理、HTTPS、限流和更严格的网络访问控制；
+- M4.4 当前备用源要求兼容 `ssq.TXT` 的 31 字段格式，完整来源适配器与多源告警通知仍待实现；
+- M4.5 后续：任务异步化补齐、备份恢复校验、最近抓取/通知状态与更细粒度监控；
+- 可扩展：更多规律假设（含官方"期号尾数""生肖"等民俗说法，统一送入回测证伪），
+  交易所行情无关。
 
 ## 升级方案 v2.0
 
