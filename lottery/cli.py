@@ -102,6 +102,13 @@ def cmd_mine(args):
                             top_k_features=getattr(args, "top_k", 8))
     print(json.dumps(res, ensure_ascii=False, indent=2))
 
+
+def cmd_import_mining(args):
+    from . import mining
+    result = mining.import_mining_artifact(args.path)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
 def cmd_doctor(args):
     """系统自检：数据库/版本徽标/缓存号/ECharts 本地 vendor/LLM 配置。"""
     import re
@@ -163,6 +170,8 @@ def main(argv=None):
     m.add_argument("--engine", choices=["lightgbm", "rf", "lift"], default="rf",
                    help="特征重要性引擎（lightgbm 未安装时自动回退 rf/lift）")
     m.add_argument("--top-k", type=int, default=8, help="保留 Top-K 特征生成候选规律")
+    im = sub.add_parser("import_mining", help="导入本机发布的挖掘产物（远程部署使用）")
+    im.add_argument("path", nargs="?", default=None, help="产物路径，默认 data/mining_artifact.json")
     sub.add_parser("doctor", help="系统自检（数据库/版本徽标/缓存号/vendor/LLM 配置）")
     s = sub.add_parser("serve", help="启动 Web 服务（默认端口 18000，可用 PORT 环境变量覆盖）")
     s.add_argument("--host", default="0.0.0.0")

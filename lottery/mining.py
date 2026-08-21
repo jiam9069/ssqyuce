@@ -42,6 +42,18 @@ _FEATURE_NAMES = [
     "rank_freq_150",                                               # 全历史频率排名
     "co_hot_30",                                                   # 共现热度
     "cold_concentrate",                                            # 冷门集中度
+    # M4.6 扩展特征（40）：变化率、结构、属性与联合关系
+    "freq_3_vs_30", "freq_5_vs_50", "freq_10_vs_100", "freq_20_vs_150",
+    "freq_slope_5_20", "freq_slope_10_50", "freq_slope_20_100",
+    "omit_bin_0_5", "omit_bin_6_10", "omit_bin_11_15", "omit_bin_16_20", "omit_bin_21_plus",
+    "number_parity", "number_size", "number_route_0", "number_route_1", "number_route_2",
+    "number_norm", "omit_norm",
+    "zone_share_1", "zone_share_2", "zone_share_3",
+    "tail_freq_10", "tail_freq_50", "neighbor_omit_ratio",
+    "back_3", "back_5", "appeared_30", "appeared_50",
+    "blue_same_parity_rate", "blue_same_size_rate",
+    "sum_mean_50", "sum_std_50", "span_mean_50", "span_std_50", "odd_mean_50",
+    "last_sum_z", "last_span_z", "last_odd_count", "zone_imbalance",
 ]
 
 
@@ -151,6 +163,82 @@ def _compute_features_for_number(
 
     feats.append(rank * ratio)   # 冷门集中度
 
+    # ---- M4.6 扩展特征（40 维）----
+    def _freq(w: int) -> float:
+        sl = history[-w:] if len(history) >= w else history
+        return float(F.red_frequency(sl)[number]) if sl else 0.0
+
+    def _slope(w1: int, w2: int) -> float:
+        return (_freq(w1) / max(w1, 1)) - (_freq(w2) / max(w2, 1))
+
+    f3, f5, f10, f20 = _freq(3), _freq(5), _freq(10), _freq(20)
+    f30, f50, f100, f150 = _freq(30), _freq(50), _freq(100), _freq(150)
+    feats.extend([
+        f3 - f30 / 10.0, f5 - f50 / 10.0, f10 - f100 / 10.0, f20 - f150 / 7.5,
+        _slope(5, 20), _slope(10, 50), _slope(20, 100),
+    ])
+
+    om_value = float(om_cur[number])
+    feats.extend([
+        float(om_value <= 5),
+        float(6 <= om_value <= 10),
+        float(11 <= om_value <= 15),
+        float(16 <= om_value <= 20),
+        float(om_value >= 21),
+    ])
+    feats.extend([
+        float(number % 2), float(number <= 16),
+        float(number % 3 == 0), float(number % 3 == 1), float(number % 3 == 2),
+        float(number) / 33.0, om_value / max(float(n), 1.0),
+    ])
+
+    recent = history[-20:] if len(history) >= 20 else history
+
+    z_total = max(float(len(history[-50:] if len(history) >= 50 else history) * 6), 1.0)
+    z_counts_50 = [0, 0, 0]
+    sl50 = history[-50:] if len(history) >= 50 else history
+    for d in sl50:
+        for r in d["reds"]:
+            z_counts_50[0 if r <= 11 else (1 if r <= 22 else 2)] += 1
+    feats.extend(v / z_total for v in z_counts_50)
+
+    tail_numbers = [x for x in range(1, 34) if x % 10 == tail]
+    tail10 = history[-10:] if len(history) >= 10 else history
+    tail50 = history[-50:] if len(history) >= 50 else history
+    feats.append(sum(1 for d in tail10 for r in d["reds"] if r % 10 == tail) / max(len(tail10) * 6, 1))
+    feats.append(sum(1 for d in tail50 for r in d["reds"] if r % 10 == tail) / max(len(tail50) * 6, 1))
+    feats.append((float(np.mean([om_cur[x] for x in nbr])) / max(float(om_avg[number]), 1.0)) if nbr else 0.0)
+
+    for k in (3, 5):
+        feats.append(float(number in history[-k]["reds"]) if len(history) >= k else 0.0)
+    for k in (30, 50):
+        sl = history[-k:] if len(history) >= k else history
+        feats.append(sum(1 for d in sl if number in d["reds"]) / max(len(sl), 1))
+
+    blue_parity = [d["blue"] % 2 for d in history[-50:]]
+    blue_size = [d["blue"] <= 8 for d in history[-50:]]
+    feats.append(float(np.mean([v == number % 2 for v in blue_parity])) if blue_parity else 0.0)
+    feats.append(float(np.mean([v == (number <= 16) for v in blue_size])) if blue_size else 0.0)
+
+    sums50 = F.sums(sl50) if sl50 else np.array([], dtype=float)
+    spans50 = F.span(sl50) if sl50 else np.array([], dtype=float)
+    odds50 = F.odd_counts(sl50) if sl50 else np.array([], dtype=float)
+    feats.extend([
+        float(np.mean(sums50)) if len(sums50) else 0.0,
+        float(np.std(sums50)) if len(sums50) else 0.0,
+        float(np.mean(spans50)) if len(spans50) else 0.0,
+        float(np.std(spans50)) if len(spans50) else 0.0,
+        float(np.mean(odds50)) if len(odds50) else 0.0,
+    ])
+    last_sum = float(sum(history[-1]["reds"])) if history else 0.0
+    last_span = float(max(history[-1]["reds"]) - min(history[-1]["reds"])) if history else 0.0
+    feats.extend([
+        (last_sum - float(np.mean(sums50))) / max(float(np.std(sums50)), 1.0) if len(sums50) else 0.0,
+        (last_span - float(np.mean(spans50))) / max(float(np.std(spans50)), 1.0) if len(spans50) else 0.0,
+        float(sum(1 for r in history[-1]["reds"] if r % 2)) if history else 0.0,
+        float(max(z_counts_50) - min(z_counts_50)) / max(z_total, 1.0),
+    ])
+
     return feats
 
 
@@ -239,8 +327,8 @@ def _generate_candidates_from_features(
     candidates = []
     for feat_name, lift, idx in top_feats:
         kind = "short" if any(x in feat_name for x in ("5", "10", "20")) else "mid"
-        if "freq" in feat_name:
-            window = feat_name.replace("freq_", "")
+        if feat_name.startswith("freq_"):
+            window = feat_name.replace("freq_", "", 1)
             desc = f"近{window}期频率排名的号码下一期是否延续"
             trigger = lambda h, w=int(window): len(h) >= int(w)
             action = lambda h, w=int(window): {
@@ -366,7 +454,7 @@ def run_mining(
     if save_to_db:
         for r in results:
             r.setdefault("sample_size", r.get("n", 0))   # backtest 结果无此键，落库前补齐
-        db.save_pattern_results(results)
+        db.replace_mined_patterns(results)
         print(f"[mining] 已入库 {len(results)} 条挖掘规律")
 
     elapsed = time.time() - t0
@@ -401,8 +489,60 @@ def run_mining(
                         "n_features": int(X.shape[1])},
     })
     save_mining_result(summary)
+    export_mining_artifact(summary, results, draws)
     print(f"[mining] 完成: {summary}")
     return summary
+
+
+def _artifact_path():
+    from . import config
+    return config.BASE / "data" / "mining_artifact.json"
+
+
+def export_mining_artifact(summary: Dict, results: List[Dict], draws: List[Dict]) -> None:
+    """导出可提交 Git 的挖掘产物；不包含数据库、原始数据或凭据。"""
+    payload = {
+        "format": "ssq-mining-artifact-v1",
+        "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "source_max_issue": draws[-1]["issue"] if draws else None,
+        "summary": summary,
+        "patterns": [
+            {k: v for k, v in r.items() if k in {
+                "key", "name_zh", "kind", "desc", "params", "grade", "sample_size",
+                "margin", "p_value", "p_adj", "direction", "backtest", "_feat_name", "_lift"
+            }}
+            for r in results
+        ],
+    }
+    path = _artifact_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def import_mining_artifact(path=None) -> Dict:
+    """导入本机发布的挖掘产物；重复导入结果一致。"""
+    artifact = path or _artifact_path()
+    artifact = __import__("pathlib").Path(artifact)
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    if payload.get("format") != "ssq-mining-artifact-v1":
+        raise ValueError("不支持的挖掘产物格式")
+    patterns = payload.get("patterns")
+    if not isinstance(patterns, list):
+        raise ValueError("挖掘产物缺少 patterns 列表")
+    required = {"key", "name_zh", "kind", "grade", "sample_size", "margin", "p_value", "direction"}
+    clean = []
+    for item in patterns:
+        if not isinstance(item, dict) or not required.issubset(item):
+            raise ValueError("挖掘产物包含不完整规律")
+        clean.append(item)
+    db.replace_mined_patterns(clean)
+    return {
+        "source_max_issue": payload.get("source_max_issue"),
+        "imported": len(clean),
+        "run_id": (payload.get("summary") or {}).get("run_id"),
+    }
 
 
 def get_latest_mining_result() -> Optional[Dict]:

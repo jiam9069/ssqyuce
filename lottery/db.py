@@ -337,6 +337,15 @@ def load_patterns(grade_filter: Optional[str] = None) -> List[Dict]:
     return out
 
 
+def replace_mined_patterns(results: List[Dict]) -> None:
+    """幂等替换本机发布的挖掘规律，不影响内置规律。"""
+    conn = get_conn()
+    conn.execute("DELETE FROM patterns WHERE key LIKE 'mined_%'")
+    conn.commit()
+    if results:
+        save_pattern_results(results)
+
+
 # ---------- predictions ----------
 
 def save_predictions(issue: str, tickets: List[Dict]):

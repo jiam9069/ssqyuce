@@ -1,49 +1,65 @@
 {
-  "run_id": "mine_20260817_164538",
-  "engine": "rf",
-  "n_features": 40,
-  "n_candidates": 8,
-  "accepted": 1,
+  "run_id": "mine_20260821_163404",
+  "engine": "lift",
+  "n_features": 80,
+  "n_candidates": 12,
+  "accepted": 3,
   "grades": {
-    "A": 1,
-    "B": 0,
-    "C": 7
+    "A": 0,
+    "B": 3,
+    "C": 9
   },
-  "avg_lift": 0.0525,
-  "pass_rate": 0.125,
-  "elapsed_seconds": 774.1,
+  "avg_lift": 0.0042,
+  "pass_rate": 0.25,
+  "elapsed_seconds": 850.6,
   "features_used": [
     [
-      "omit_avg",
-      0.0621
+      "number_norm",
+      -0.0067
     ],
     [
-      "sum_value",
-      0.058
+      "tail_rate_50",
+      -0.0054
     ],
     [
-      "span_value",
-      0.0541
+      "rank_freq_150",
+      -0.0048
     ],
     [
       "tail_omit",
-      0.0518
+      0.0046
     ],
     [
-      "cold_concentrate",
-      0.0509
+      "freq_100",
+      0.0045
+    ],
+    [
+      "head_rate_50",
+      0.0043
+    ],
+    [
+      "appeared_2",
+      0.0038
+    ],
+    [
+      "omit_avg",
+      -0.0037
+    ],
+    [
+      "omit_cur",
+      -0.0033
+    ],
+    [
+      "tail_freq_50",
+      -0.0032
     ],
     [
       "omit_ratio",
-      0.0502
+      -0.003
     ],
     [
-      "zone_self_hot_50",
-      0.0468
-    ],
-    [
-      "neighbor_omit_avg",
-      0.0464
+      "freq_5",
+      0.0027
     ]
   ]
 }

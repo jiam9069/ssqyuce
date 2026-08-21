@@ -1,0 +1,5184 @@
+{
+  "format": "ssq-mining-artifact-v1",
+  "generated_at": "2026-08-21 16:48:15",
+  "source_max_issue": "2026093",
+  "summary": {
+    "run_id": "mine_20260821_163404",
+    "engine": "lift",
+    "n_features": 80,
+    "n_candidates": 12,
+    "accepted": 3,
+    "grades": {
+      "A": 0,
+      "B": 3,
+      "C": 9
+    },
+    "avg_lift": 0.0042,
+    "pass_rate": 0.25,
+    "elapsed_seconds": 850.6,
+    "features_used": [
+      [
+        "number_norm",
+        -0.0067
+      ],
+      [
+        "tail_rate_50",
+        -0.0054
+      ],
+      [
+        "rank_freq_150",
+        -0.0048
+      ],
+      [
+        "tail_omit",
+        0.0046
+      ],
+      [
+        "freq_100",
+        0.0045
+      ],
+      [
+        "head_rate_50",
+        0.0043
+      ],
+      [
+        "appeared_2",
+        0.0038
+      ],
+      [
+        "omit_avg",
+        -0.0037
+      ],
+      [
+        "omit_cur",
+        -0.0033
+      ],
+      [
+        "tail_freq_50",
+        -0.0032
+      ],
+      [
+        "omit_ratio",
+        -0.003
+      ],
+      [
+        "freq_5",
+        0.0027
+      ]
+    ]
+  },
+  "patterns": [
+    {
+      "key": "mined_number_norm",
+      "name_zh": "挖掘·number_norm",
+      "kind": "mid",
+      "desc": "特征 number_norm 的数值偏高号码回补",
+      "backtest": {
+        "n": 3190,
+        "avg_hits": 0.0,
+        "expected": 0.0,
+        "hit_rate_at_least1": 0.0,
+        "p0": 0.0,
+        "avg_fav_size": 0.0,
+        "ci_lower": null,
+        "ci_upper": null,
+        "series": []
+      },
+      "margin": 0.0,
+      "p_value": 1.0,
+      "p_adj": 1.0,
+      "direction": "none",
+      "grade": "C",
+      "_feat_name": "number_norm",
+      "_lift": -0.0067,
+      "sample_size": 3190
+    },
+    {
+      "key": "mined_tail_rate_50",
+      "name_zh": "挖掘·tail_rate_50",
+      "kind": "short",
+      "desc": "特征 tail_rate_50 的数值偏高号码回补",
+      "backtest": {
+        "n": 3190,
+        "avg_hits": 0.0,
+        "expected": 0.0,
+        "hit_rate_at_least1": 0.0,
+        "p0": 0.0,
+        "avg_fav_size": 0.0,
+        "ci_lower": null,
+        "ci_upper": null,
+        "series": []
+      },
+      "margin": 0.0,
+      "p_value": 1.0,
+      "p_adj": 1.0,
+      "direction": "none",
+      "grade": "C",
+      "_feat_name": "tail_rate_50",
+      "_lift": -0.0054,
+      "sample_size": 3190
+    },
+    {
+      "key": "mined_rank_freq_150",
+      "name_zh": "挖掘·rank_freq_150",
+      "kind": "short",
+      "desc": "特征 rank_freq_150 的数值偏高号码回补",
+      "backtest": {
+        "n": 3190,
+        "avg_hits": 0.0,
+        "expected": 0.0,
+        "hit_rate_at_least1": 0.0,
+        "p0": 0.0,
+        "avg_fav_size": 0.0,
+        "ci_lower": null,
+        "ci_upper": null,
+        "series": []
+      },
+      "margin": 0.0,
+      "p_value": 1.0,
+      "p_adj": 1.0,
+      "direction": "none",
+      "grade": "C",
+      "_feat_name": "rank_freq_150",
+      "_lift": -0.0048,
+      "sample_size": 3190
+    },
+    {
+      "key": "mined_tail_omit",
+      "name_zh": "挖掘·tail_omit",
+      "kind": "mid",
+      "desc": "特征 tail_omit 的数值偏高号码回补",
+      "backtest": {
+        "n": 3190,
+        "avg_hits": 0.0,
+        "expected": 0.0,
+        "hit_rate_at_least1": 0.0,
+        "p0": 0.0,
+        "avg_fav_size": 0.0,
+        "ci_lower": null,
+        "ci_upper": null,
+        "series": []
+      },
+      "margin": 0.0,
+      "p_value": 1.0,
+      "p_adj": 1.0,
+      "direction": "none",
+      "grade": "C",
+      "_feat_name": "tail_omit",
+      "_lift": 0.0046,
+      "sample_size": 3190
+    },
+    {
+      "key": "mined_freq_100",
+      "name_zh": "挖掘·freq_100",
+      "kind": "short",
+      "desc": "近100期频率排名的号码下一期是否延续",
+      "backtest": {
+        "n": 3190,
+        "avg_hits": 1.1106583072100313,
+        "expected": 1.0909090909090906,
+        "margin": 0.01974921630094073,
+        "hit_rate_at_least1": 0.7288401253918495,
+        "p0": 0.7327387573494359,
+        "avg_fav_size": 6.0,
+        "t_stat": 1.2401318601780067,
+        "ci_lower": 0.7131,
+        "ci_upper": 0.744,
+        "series": [
+          {
+            "trigger_issue": "2005090",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005091",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005092",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005093",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005094",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005095",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005096",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005097",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005098",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005099",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005100",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005101",
+            "hits": 4,
+            "expected": 1.0909,
+            "margin": 2.9091
+          },
+          {
+            "trigger_issue": "2005102",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005103",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005104",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005105",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005106",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005107",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005108",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005109",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005110",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005111",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005112",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005113",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005114",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005115",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005116",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005117",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005118",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005119",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005120",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005121",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005122",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005123",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005124",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005125",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005126",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005127",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005128",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005129",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005130",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005131",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005132",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005133",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2005134",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2005135",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005136",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005137",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005138",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005139",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005140",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005141",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005142",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005143",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005144",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005145",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005146",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005147",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005148",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005149",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005150",
+            "hits": 4,
+            "expected": 1.0909,
+            "margin": 2.9091
+          },
+          {
+            "trigger_issue": "2005151",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005152",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005153",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006001",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006002",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006003",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006004",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006005",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006006",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006007",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006008",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006009",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006010",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006011",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006012",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006013",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006014",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006015",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006016",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006017",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006018",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006019",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006020",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006021",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006022",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006023",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006024",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006025",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006026",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006027",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006028",
+            "hits": 4,
+            "expected": 1.0909,
+            "margin": 2.9091
+          },
+          {
+            "trigger_issue": "2006029",
+            "hits": 4,
+            "expected": 1.0909,
+            "margin": 2.9091
+          },
+          {
+            "trigger_issue": "2006030",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006031",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006032",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006033",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006034",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006035",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006036",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006037",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006038",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006039",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006040",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006041",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006042",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006043",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006044",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006045",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006046",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006047",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006048",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006049",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006050",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006051",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006052",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006053",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006054",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006055",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006056",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006057",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006058",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006059",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006060",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006061",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006062",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006063",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006064",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006065",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006066",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006067",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006068",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006069",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006070",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006071",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006072",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006073",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006074",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006075",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006076",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006077",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006078",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006079",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006080",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006081",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006082",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006083",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006084",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006085",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006086",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006087",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006088",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006089",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006090",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006091",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006092",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006093",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006094",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006095",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006096",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006097",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006098",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006099",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006100",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006101",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006102",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006103",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006104",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006105",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006106",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006107",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006108",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006109",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006110",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006111",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006112",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006113",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006114",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006115",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006116",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006117",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006118",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006119",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006120",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006121",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006122",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006123",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006124",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006125",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006126",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006127",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006128",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006129",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006130",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006131",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006132",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006133",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006134",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006135",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006136",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          }
+        ]
+      },
+      "margin": 0.01974921630094073,
+      "p_value": 0.10750893258954179,
+      "direction": "above",
+      "grade": "B",
+      "_feat_name": "freq_100",
+      "_lift": 0.0045,
+      "p_adj": 0.1433452434527224,
+      "sample_size": 3190
+    },
+    {
+      "key": "mined_head_rate_50",
+      "name_zh": "挖掘·head_rate_50",
+      "kind": "short",
+      "desc": "特征 head_rate_50 的数值偏高号码回补",
+      "backtest": {
+        "n": 3190,
+        "avg_hits": 0.0,
+        "expected": 0.0,
+        "hit_rate_at_least1": 0.0,
+        "p0": 0.0,
+        "avg_fav_size": 0.0,
+        "ci_lower": null,
+        "ci_upper": null,
+        "series": []
+      },
+      "margin": 0.0,
+      "p_value": 1.0,
+      "p_adj": 1.0,
+      "direction": "none",
+      "grade": "C",
+      "_feat_name": "head_rate_50",
+      "_lift": 0.0043,
+      "sample_size": 3190
+    },
+    {
+      "key": "mined_appeared_2",
+      "name_zh": "挖掘·appeared_2",
+      "kind": "mid",
+      "desc": "近2期未出现的号码是否回补",
+      "backtest": {
+        "n": 3190,
+        "avg_hits": 0.3821316614420063,
+        "expected": 0.36363636363636365,
+        "margin": 0.01849529780564263,
+        "hit_rate_at_least1": 0.3529780564263323,
+        "p0": 0.33522727272727265,
+        "avg_fav_size": 2.0,
+        "t_stat": 1.924904394642344,
+        "ci_lower": 0.3366,
+        "ci_upper": 0.3697,
+        "series": [
+          {
+            "trigger_issue": "2005090",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005091",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005092",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005093",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005094",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005095",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005096",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005097",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005098",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005099",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005100",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005101",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005102",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005103",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005104",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005105",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005106",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005107",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005108",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005109",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005110",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005111",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005112",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005113",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005114",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005115",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005116",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005117",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005118",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005119",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005120",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005121",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005122",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005123",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005124",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005125",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005126",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005127",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005128",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005129",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005130",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005131",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005132",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005133",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005134",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005135",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005136",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005137",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005138",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005139",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005140",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005141",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005142",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005143",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005144",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005145",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005146",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005147",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005148",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005149",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005150",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005151",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2005152",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2005153",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006001",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006002",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006003",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006004",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006005",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006006",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006007",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006008",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006009",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006010",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006011",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006012",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006013",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006014",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006015",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006016",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006017",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006018",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006019",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006020",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006021",
+            "hits": 2,
+            "expected": 0.3636,
+            "margin": 1.6364
+          },
+          {
+            "trigger_issue": "2006022",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006023",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006024",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006025",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006026",
+            "hits": 2,
+            "expected": 0.3636,
+            "margin": 1.6364
+          },
+          {
+            "trigger_issue": "2006027",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006028",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006029",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006030",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006031",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006032",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006033",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006034",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006035",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006036",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006037",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006038",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006039",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006040",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006041",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006042",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006043",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006044",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006045",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006046",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006047",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006048",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006049",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006050",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006051",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006052",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006053",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006054",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006055",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006056",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006057",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006058",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006059",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006060",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006061",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006062",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006063",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006064",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006065",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006066",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006067",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006068",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006069",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006070",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006071",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006072",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006073",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006074",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006075",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006076",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006077",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006078",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006079",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006080",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006081",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006082",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006083",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006084",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006085",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006086",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006087",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006088",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006089",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006090",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006091",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006092",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006093",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006094",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006095",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006096",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006097",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006098",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006099",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006100",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006101",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006102",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006103",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006104",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006105",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006106",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006107",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006108",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006109",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006110",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006111",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006112",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006113",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006114",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006115",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006116",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006117",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006118",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006119",
+            "hits": 2,
+            "expected": 0.3636,
+            "margin": 1.6364
+          },
+          {
+            "trigger_issue": "2006120",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006121",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006122",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006123",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006124",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006125",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006126",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006127",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006128",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006129",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006130",
+            "hits": 1,
+            "expected": 0.3636,
+            "margin": 0.6364
+          },
+          {
+            "trigger_issue": "2006131",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006132",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006133",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006134",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006135",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          },
+          {
+            "trigger_issue": "2006136",
+            "hits": 0,
+            "expected": 0.3636,
+            "margin": -0.3636
+          }
+        ]
+      },
+      "margin": 0.01849529780564263,
+      "p_value": 0.02716508669516365,
+      "direction": "above",
+      "grade": "B",
+      "_feat_name": "appeared_2",
+      "_lift": 0.0038,
+      "p_adj": 0.06559300347504457,
+      "sample_size": 3190
+    },
+    {
+      "key": "mined_omit_avg",
+      "name_zh": "挖掘·omit_avg",
+      "kind": "mid",
+      "desc": "特征 omit_avg 的数值偏高号码回补",
+      "backtest": {
+        "n": 3190,
+        "avg_hits": 0.0,
+        "expected": 0.0,
+        "hit_rate_at_least1": 0.0,
+        "p0": 0.0,
+        "avg_fav_size": 0.0,
+        "ci_lower": null,
+        "ci_upper": null,
+        "series": []
+      },
+      "margin": 0.0,
+      "p_value": 1.0,
+      "p_adj": 1.0,
+      "direction": "none",
+      "grade": "C",
+      "_feat_name": "omit_avg",
+      "_lift": -0.0037,
+      "sample_size": 3190
+    },
+    {
+      "key": "mined_omit_cur",
+      "name_zh": "挖掘·omit_cur",
+      "kind": "mid",
+      "desc": "特征 omit_cur 的数值偏高号码回补",
+      "backtest": {
+        "n": 3190,
+        "avg_hits": 0.0,
+        "expected": 0.0,
+        "hit_rate_at_least1": 0.0,
+        "p0": 0.0,
+        "avg_fav_size": 0.0,
+        "ci_lower": null,
+        "ci_upper": null,
+        "series": []
+      },
+      "margin": 0.0,
+      "p_value": 1.0,
+      "p_adj": 1.0,
+      "direction": "none",
+      "grade": "C",
+      "_feat_name": "omit_cur",
+      "_lift": -0.0033,
+      "sample_size": 3190
+    },
+    {
+      "key": "mined_tail_freq_50",
+      "name_zh": "挖掘·tail_freq_50",
+      "kind": "short",
+      "desc": "特征 tail_freq_50 的数值偏高号码回补",
+      "backtest": {
+        "n": 3190,
+        "avg_hits": 0.0,
+        "expected": 0.0,
+        "hit_rate_at_least1": 0.0,
+        "p0": 0.0,
+        "avg_fav_size": 0.0,
+        "ci_lower": null,
+        "ci_upper": null,
+        "series": []
+      },
+      "margin": 0.0,
+      "p_value": 1.0,
+      "p_adj": 1.0,
+      "direction": "none",
+      "grade": "C",
+      "_feat_name": "tail_freq_50",
+      "_lift": -0.0032,
+      "sample_size": 3190
+    },
+    {
+      "key": "mined_omit_ratio",
+      "name_zh": "挖掘·omit_ratio",
+      "kind": "mid",
+      "desc": "遗漏/平均遗漏比高的号码是否即将回补",
+      "backtest": {
+        "n": 3190,
+        "avg_hits": 1.0730407523510972,
+        "expected": 1.0909090909090906,
+        "margin": -0.017868338557993413,
+        "hit_rate_at_least1": 0.7241379310344828,
+        "p0": 0.7327387573494359,
+        "avg_fav_size": 6.0,
+        "t_stat": -1.16430039051358,
+        "ci_lower": 0.7084,
+        "ci_upper": 0.7394,
+        "series": [
+          {
+            "trigger_issue": "2005090",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005091",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005092",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005093",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005094",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005095",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005096",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005097",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005098",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005099",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005100",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005101",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005102",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005103",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005104",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2005105",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005106",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005107",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005108",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005109",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005110",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005111",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2005112",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2005113",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005114",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005115",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2005116",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005117",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005118",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005119",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005120",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005121",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005122",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005123",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2005124",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005125",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005126",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005127",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005128",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005129",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005130",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005131",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005132",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005133",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005134",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005135",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005136",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005137",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2005138",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005139",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2005140",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005141",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005142",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005143",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005144",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005145",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005146",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005147",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005148",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005149",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005150",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2005151",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005152",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005153",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006001",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006002",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006003",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006004",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006005",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006006",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006007",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006008",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006009",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006010",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006011",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006012",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006013",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006014",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006015",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006016",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006017",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006018",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006019",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006020",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006021",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006022",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006023",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006024",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006025",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006026",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006027",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006028",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006029",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006030",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006031",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006032",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006033",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006034",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006035",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006036",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006037",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006038",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006039",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006040",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006041",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006042",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006043",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006044",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006045",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006046",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006047",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006048",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006049",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006050",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006051",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006052",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006053",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006054",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006055",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006056",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006057",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006058",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006059",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006060",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006061",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006062",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006063",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006064",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006065",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006066",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006067",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006068",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006069",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006070",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006071",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006072",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006073",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006074",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006075",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006076",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006077",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006078",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006079",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006080",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006081",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006082",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006083",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006084",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006085",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006086",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006087",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006088",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006089",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006090",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006091",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006092",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006093",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006094",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006095",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006096",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006097",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006098",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006099",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006100",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006101",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006102",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006103",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006104",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006105",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006106",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006107",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006108",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006109",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006110",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006111",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006112",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006113",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006114",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006115",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006116",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006117",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006118",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006119",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006120",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006121",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006122",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006123",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006124",
+            "hits": 4,
+            "expected": 1.0909,
+            "margin": 2.9091
+          },
+          {
+            "trigger_issue": "2006125",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006126",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006127",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006128",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006129",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006130",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006131",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006132",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006133",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006134",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006135",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006136",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          }
+        ]
+      },
+      "margin": -0.017868338557993413,
+      "p_value": 0.8778053035449687,
+      "direction": "below",
+      "grade": "C",
+      "_feat_name": "omit_ratio",
+      "_lift": -0.003,
+      "p_adj": 0.8778053035449687,
+      "sample_size": 3190
+    },
+    {
+      "key": "mined_freq_5",
+      "name_zh": "挖掘·freq_5",
+      "kind": "short",
+      "desc": "近5期频率排名的号码下一期是否延续",
+      "backtest": {
+        "n": 3190,
+        "avg_hits": 1.1197492163009404,
+        "expected": 1.0909090909090906,
+        "margin": 0.02884012539184977,
+        "hit_rate_at_least1": 0.7426332288401254,
+        "p0": 0.7327387573494359,
+        "avg_fav_size": 6.0,
+        "t_stat": 1.8418287597760383,
+        "ci_lower": 0.7272,
+        "ci_upper": 0.7575,
+        "series": [
+          {
+            "trigger_issue": "2005090",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005091",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005092",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005093",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005094",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005095",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005096",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005097",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005098",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005099",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005100",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005101",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005102",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005103",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005104",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005105",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005106",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005107",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005108",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005109",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005110",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005111",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005112",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005113",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005114",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005115",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005116",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005117",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005118",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005119",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005120",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2005121",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005122",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2005123",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005124",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005125",
+            "hits": 4,
+            "expected": 1.0909,
+            "margin": 2.9091
+          },
+          {
+            "trigger_issue": "2005126",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005127",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005128",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005129",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005130",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005131",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005132",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005133",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005134",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005135",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005136",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005137",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005138",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005139",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005140",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005141",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005142",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005143",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2005144",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005145",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2005146",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005147",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005148",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2005149",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005150",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2005151",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2005152",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2005153",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006001",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006002",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006003",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006004",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006005",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006006",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006007",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006008",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006009",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006010",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006011",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006012",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006013",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006014",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006015",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006016",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006017",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006018",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006019",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006020",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006021",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006022",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006023",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006024",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006025",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006026",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006027",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006028",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006029",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006030",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006031",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006032",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006033",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006034",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006035",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006036",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006037",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006038",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006039",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006040",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006041",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006042",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006043",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006044",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006045",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006046",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006047",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006048",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006049",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006050",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006051",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006052",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006053",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006054",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006055",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006056",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006057",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006058",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006059",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006060",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006061",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006062",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006063",
+            "hits": 4,
+            "expected": 1.0909,
+            "margin": 2.9091
+          },
+          {
+            "trigger_issue": "2006064",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006065",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006066",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006067",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006068",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006069",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006070",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006071",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006072",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006073",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006074",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006075",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006076",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006077",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006078",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006079",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006080",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006081",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006082",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006083",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006084",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006085",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006086",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006087",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006088",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006089",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006090",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006091",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006092",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006093",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006094",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006095",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006096",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006097",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006098",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006099",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006100",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006101",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006102",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006103",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006104",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006105",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006106",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006107",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006108",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006109",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006110",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006111",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006112",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006113",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006114",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006115",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006116",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006117",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006118",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006119",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006120",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006121",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006122",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006123",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006124",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006125",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006126",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006127",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006128",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006129",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006130",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          },
+          {
+            "trigger_issue": "2006131",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006132",
+            "hits": 3,
+            "expected": 1.0909,
+            "margin": 1.9091
+          },
+          {
+            "trigger_issue": "2006133",
+            "hits": 0,
+            "expected": 1.0909,
+            "margin": -1.0909
+          },
+          {
+            "trigger_issue": "2006134",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006135",
+            "hits": 2,
+            "expected": 1.0909,
+            "margin": 0.9091
+          },
+          {
+            "trigger_issue": "2006136",
+            "hits": 1,
+            "expected": 1.0909,
+            "margin": -0.0909
+          }
+        ]
+      },
+      "margin": 0.02884012539184977,
+      "p_value": 0.032796501737522285,
+      "direction": "above",
+      "grade": "B",
+      "_feat_name": "freq_5",
+      "_lift": 0.0027,
+      "p_adj": 0.06559300347504457,
+      "sample_size": 3190
+    }
+  ]
+}

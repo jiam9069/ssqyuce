@@ -5,6 +5,13 @@ set -e
 echo "[boot] 同步开奖数据..."
 python -m lottery.cli fetch || echo "[boot] 抓取失败，稍后由开奖日调度自动重试"
 
+if [ -f /app/data/mining_artifact.json ]; then
+  echo "[boot] 导入本机挖掘产物..."
+  python -m lottery.cli import_mining /app/data/mining_artifact.json
+else
+  echo "[boot] 未发现本机挖掘产物，跳过自动挖掘"
+fi
+
 echo "[boot] 运行规律回测..."
 python -m lottery.cli backtest || true
 

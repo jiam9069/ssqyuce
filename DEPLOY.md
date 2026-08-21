@@ -75,7 +75,38 @@ sudo ufw allow 18000/tcp && sudo ufw enable
 
 阿里云/腾讯云/AWS 等需在**安全组**里放行 TCP 18000。
 
-## 六、长期运行与运维
+## 六、本机挖掘并发布到 BF.US
+
+VPS 不执行自动挖掘。挖掘在本机完成后，只提交 `data/mining_artifact.json`；数据库、原始快照和密钥仍不会进入 Git。
+
+### Windows 本机（PowerShell）
+
+```powershell
+# 在工作区 D:\AI\Deepseek-harness\CP 执行
+.venv\Scripts\python.exe -m lottery.cli fetch
+.venv\Scripts\python.exe -m lottery.cli mine --engine rf --min-start 300 --top-k 8
+.venv\Scripts\python.exe -m lottery.cli import_mining data\mining_artifact.json  # 可选：验证可导入
+
+git add lottery data/mining_artifact.json entrypoint.sh DEPLOY.md
+git commit -m "chore: publish local mining artifact"
+git push origin main
+```
+
+`mine` 会更新本机 SQLite，同时生成 `data/mining_artifact.json`。该文件仅包含挖掘规律、统计显著性和来源期号，不包含开奖数据库或凭据。
+
+### BF.US 远程重建
+
+```bash
+cd /opt/ssqyuce
+git pull --ff-only origin main
+docker compose up -d --build
+docker compose logs --tail 80 lottery
+curl -fsS http://127.0.0.1:18000/api/health
+```
+
+容器启动时会自动导入 `/app/data/mining_artifact.json`；重复重建是幂等的。若本次不发布产物，启动会明确跳过挖掘，不会在 VPS 上自动运行 `mine`。
+
+## 七、长期运行与运维
 
 | 事项 | 操作 |
 |---|---|
@@ -95,7 +126,7 @@ sudo ufw allow 18000/tcp && sudo ufw enable
 
 恢复：`docker compose down && tar -xzf /backup/ssq_xxx.tar.gz -C /opt/ssq && docker compose up -d`。
 
-## 七、公网访问：反代 + HTTPS（可选，推荐）
+## 八、公网访问：反代 + HTTPS（可选，推荐）
 
 主机 18000 端口**不直接暴露公网**，改用反向代理 + 自动 HTTPS：
 
@@ -125,7 +156,7 @@ server {
 
 > 此时主机只需放行 80/443，18000 仅监听 127.0.0.1。
 
-## 八、常见问题
+## 九、常见问题
 
 - **端口占用/想换端口**：改 `docker-compose.yml` 中 `"18000:18000"`（左侧），或仅改左侧为 `"新端口:18000"` 保持容器内不变；
 - **LLM 未生效/调用失败**：仓库不含任何模型凭据，需先在 `/opt/ssq/` 创建 `.env`（`cp .env.example .env` 后填写你自己的 `LOTT_LLM_BASE_URL` / `LOTT_LLM_API_KEY` / `LOTT_LLM_MODEL`），然后 `docker compose up -d`。确认 VPS 能访问该 API 域名；可临时设 `LOTT_LLM_DISABLED=1` 降级为纯统计模型排查；
@@ -134,7 +165,7 @@ server {
 - **时区**：已设 `TZ=Asia/Shanghai`，调度以北京时间为准；
 - **合规**：页面与输出已含免责声明，勿对外声称"可预测中奖"；建议反代 + 简单鉴权（Caddy `basic_auth`）后再公网开放。
 
-## 九、架构速览（容器内）
+## 十、架构速览（容器内）
 
 ```
 entrypoint.sh（启动：同步数据→回测→按需生成预测）
