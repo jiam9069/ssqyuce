@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import json
+import hmac
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -24,6 +26,19 @@ app = FastAPI(title="双色球智能预测分析系统", version=config.APP_VERS
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
 )
+
+
+@app.middleware("http")
+async def optional_api_auth(request: Request, call_next):
+    """LOTT_TOKEN 配置后保护 /api/*；静态前端和健康探活保持可加载。"""
+    if config.API_TOKEN and request.url.path.startswith("/api/"):
+        auth = request.headers.get("authorization", "")
+        expected = f"Bearer {config.API_TOKEN}"
+        if not hmac.compare_digest(auth, expected):
+            return JSONResponse({"ok": False, "error": "需要 Bearer Token"}, status_code=401,
+                                headers={"WWW-Authenticate": "Bearer"})
+    return await call_next(request)
+
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 STATIC_DIR = WEB_DIR / "static"
@@ -55,6 +70,9 @@ def health():
         "max_issue": db.max_issue(),
         "eval_methods": [r["method"] for r in db.cumulative_eval(limit=1).get("methods", [])],
         "app_build": config.APP_BUILD,
+        "uptime_seconds": max(0, int(__import__('time').time() - config.STARTED_AT)),
+        "api_auth_enabled": bool(config.API_TOKEN),
+        "recent_tasks": db.list_tasks(limit=5),
     }
 
 

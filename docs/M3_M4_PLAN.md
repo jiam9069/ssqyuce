@@ -202,7 +202,17 @@
 - ✅ 新增 `lottery/data_check.py`：备用源抓取、期号集合对齐、开奖号码差异检测；
 - ✅ 新增 `GET /api/data/reconcile`，未配置备用源时返回 `not_configured`，不会影响主流程；
 - ✅ 新增 `LOTT_BACKUP_DATA_URL` 配置；对账为只读操作，不覆盖主库；
-- ⏳ 对账历史落库、告警通知、特征增量缓存及完整备用源适配将在后续切片实现。
+- ✅ 对账结果写入 `reconcile_runs` 审计表，并提供 `/api/data/reconcile/history` 查询。
+- ⏳ 告警通知、特征增量缓存及完整备用源适配将在后续切片实现。
+
+## 3.13 M4.5 工程加固首个切片
+
+- ✅ 新增 `lottery/migrations.py`：按版本顺序执行、记录 `schema_version`、重复启动幂等。
+- ✅ 存量库通过迁移补齐 `draws.source`、`predictions.evidence_json` 与对账审计表。
+- ✅ 配置 `LOTT_TOKEN` 后保护全部 `/api/*`；未配置时保持本地兼容开放。
+- ✅ `/api/health` 增加 `uptime_seconds`、鉴权状态与最近 5 条任务状态。
+- ✅ Docker Compose 与 `.env.example` 已透传安全配置。
+- ⏳ 任务异步化补齐、备份脚本与更细粒度监控将在后续切片实现。
 
 ## 4. 里程碑时间建议
 

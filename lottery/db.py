@@ -167,6 +167,8 @@ def get_conn() -> sqlite3.Connection:
         _CONN = sqlite3.connect(str(config.DB_PATH), check_same_thread=False)
         _CONN.row_factory = sqlite3.Row
         _CONN.executescript(SCHEMA)
+        from . import migrations
+        migrations.apply(_CONN)
         _ensure_columns(_CONN)
         _CONN.commit()
     return _CONN

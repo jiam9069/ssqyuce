@@ -5,6 +5,7 @@
 """
 import json
 import os
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -14,6 +15,9 @@ RAW_DIR = DATA_DIR / "raw"
 DB_PATH = Path(os.environ.get("LOTT_DB", str(DATA_DIR / "ssq.db")))
 
 DATA_URL = "http://e.17500.cn/getData/ssq.TXT"
+STARTED_AT = time.time()
+# M4.5：配置后启用所有 /api/* 的 Bearer Token 校验；空值保持兼容开放。
+API_TOKEN = (os.environ.get("LOTT_TOKEN") or "").strip() or None
 # M4.4：可选备用源，需返回与 ssq.TXT 相同的 31 字段格式；空值则只运行主源。
 BACKUP_DATA_URL = (os.environ.get("LOTT_BACKUP_DATA_URL") or "").strip() or None
 
