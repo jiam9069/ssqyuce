@@ -450,8 +450,14 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
         blue_count[t["blue"]] = blue_count.get(t["blue"], 0) + 1
         picked.append(t)
 
+    shortfall_reason = None
+    if len(picked) < n_tickets:
+        shortfall_reason = "all_methods_disabled" if not scored else "candidate_pool_exhausted"
     result = {
         "issue": issue,
+        "requested_tickets": n_tickets,
+        "actual_tickets": len(picked),
+        "shortfall_reason": shortfall_reason,
         "generated_at": __import__("time").strftime("%Y-%m-%d %H:%M:%S"),
         "target_draw": {"issue": draws[-1]["issue"], "date": draws[-1]["date"],
                         "reds": draws[-1]["reds"], "blue": draws[-1]["blue"]},

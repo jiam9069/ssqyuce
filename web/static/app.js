@@ -757,6 +757,23 @@ function exportCumulativeEval() {
   window.open("/api/eval/export.csv?limit=1000", "_blank");
 }
 
+async function loadMethodRecommendations() {
+  const area = $("#methodRecommendationArea");
+  if (!area) return;
+  area.innerHTML = "<div class='note'>🧭 正在计算方法与 uniform 的同期 paired 筛查…</div>";
+  try {
+    const r = await api("/api/eval/recommendations?limit=120&min_sample=60");
+    const items = r.recommendations || [];
+    if (!items.length) {
+      area.innerHTML = "<div class='note'>暂无可比较方法：需要同一期同时存在方法结果与 uniform 基线。</div>";
+      return;
+    }
+    const label = {insufficient_sample:"样本不足", monitor:"继续观察", keep_or_research:"保留/研究", disable_candidate:"可考虑关闭"};
+    const rows = items.map(x => "<tr><td>" + escHtml(x.method) + "</td><td>" + x.paired_issues + "</td><td>" + (x.paired_sign_p == null ? "-" : fmt(x.paired_sign_p, 4)) + "</td><td>" + (x.mean_reward_delta == null ? "-" : fmt(x.mean_reward_delta, 2)) + "</td><td>" + (label[x.status] || x.status) + "</td><td>" + escHtml(x.action || "") + "</td></tr>").join("");
+    area.innerHTML = "<div class='note' style='margin-bottom:6px'>🧭 M4.2 方法保留筛查（paired sign-test，对照 uniform；不会自动修改开关）</div><div class='scroll'><table><thead><tr><th>方法</th><th>同期</th><th>p值</th><th>奖金差</th><th>状态</th><th>建议</th></tr></thead><tbody>" + rows + "</tbody></table></div><div class='note'>" + escHtml(r.note || "") + "</div>";
+  } catch(e) { area.innerHTML = "<div class='note'>方法建议加载失败：" + escHtml(e.message) + "</div>"; }
+}
+
 function renderCumulativeEval(r) {
   const area = $("#cumulativeEvalArea");
   if (!area) return;
@@ -1327,6 +1344,7 @@ async function loadAll() {
       renderOnline(ev);
       const cumulative = await api("/api/eval/cumulative?limit=120");
       renderCumulativeEval(cumulative);
+      loadMethodRecommendations();
     } catch(e) {}
     initMlStatus();
     try {

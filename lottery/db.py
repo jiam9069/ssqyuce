@@ -7,6 +7,7 @@ import time
 from typing import Dict, Iterable, List, Optional
 
 from . import config
+from . import methods as _methods
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS draws (
@@ -22,9 +23,20 @@ CREATE TABLE IF NOT EXISTS draws (
   p4 INTEGER DEFAULT 0, p4_amt INTEGER DEFAULT 0,
   p5 INTEGER DEFAULT 0, p5_amt INTEGER DEFAULT 0,
   p6 INTEGER DEFAULT 0, p6_amt INTEGER DEFAULT 0,
+  source TEXT NOT NULL DEFAULT '17500',
   created_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_draws_date ON draws(date);
+
+-- M4.4：多源对账审计，仅记录结果，不修改主开奖数据
+CREATE TABLE IF NOT EXISTS reconcile_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  checked_at REAL NOT NULL,
+  secondary_url TEXT DEFAULT '',
+  status TEXT NOT NULL,
+  summary_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_reconcile_runs_checked_at ON reconcile_runs(checked_at);
 
 CREATE TABLE IF NOT EXISTS features (
   issue TEXT PRIMARY KEY,
@@ -161,11 +173,14 @@ def get_conn() -> sqlite3.Connection:
 
 
 def _ensure_columns(conn: sqlite3.Connection) -> None:
-    """存量库幂等补列（M3.2：predictions.evidence_json）。"""
-    cols = {r["name"] for r in conn.execute("PRAGMA table_info(predictions)").fetchall()}
-    if "evidence_json" not in cols:
+    """存量库幂等补列。"""
+    pred_cols = {r["name"] for r in conn.execute("PRAGMA table_info(predictions)").fetchall()}
+    if "evidence_json" not in pred_cols:
         conn.execute("ALTER TABLE predictions ADD COLUMN evidence_json TEXT DEFAULT ''")
-        conn.commit()
+    draw_cols = {r["name"] for r in conn.execute("PRAGMA table_info(draws)").fetchall()}
+    if "source" not in draw_cols:
+        conn.execute("ALTER TABLE draws ADD COLUMN source TEXT NOT NULL DEFAULT '17500'")
+    conn.commit()
 
 
 def close():
@@ -185,20 +200,46 @@ def upsert_draws(draws: Iterable[Dict]) -> int:
         conn.execute(
             """INSERT OR REPLACE INTO draws
                (issue,date,r1,r2,r3,r4,r5,r6,blue,o1,o2,o3,o4,o5,o6,
-                sales,pool,p1,p1_amt,p2,p2_amt,p3,p3_amt,p4,p4_amt,p5,p5_amt,p6,p6_amt,created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                sales,pool,p1,p1_amt,p2,p2_amt,p3,p3_amt,p4,p4_amt,p5,p5_amt,p6,p6_amt,source,created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 d["issue"], d["date"], *d["reds"], d["blue"], *d["order"],
                 d.get("sales", 0), d.get("pool", 0),
                 *d.get("prizes", [0] * 12)[0:2], *d.get("prizes", [0] * 12)[2:4],
                 *d.get("prizes", [0] * 12)[4:6], *d.get("prizes", [0] * 12)[6:8],
                 *d.get("prizes", [0] * 12)[8:10], *d.get("prizes", [0] * 12)[10:12],
-                now,
+                d.get("source", "17500"), now,
             ),
         )
         n += 1
     conn.commit()
     return n
+
+
+def save_reconcile_run(result: Dict, secondary_url: str = "") -> int:
+    """保存一次对账审计结果；只记录结果，不改变 draws。"""
+    status = "ok" if result.get("ok") else str(result.get("status") or "mismatch")
+    cur = get_conn().execute(
+        "INSERT INTO reconcile_runs (checked_at, secondary_url, status, summary_json) VALUES (?,?,?,?)",
+        (time.time(), secondary_url, status, json.dumps(result, ensure_ascii=False)),
+    )
+    get_conn().commit()
+    return int(cur.lastrowid)
+
+
+def load_reconcile_runs(limit: int = 30) -> List[Dict]:
+    rows = get_conn().execute(
+        "SELECT * FROM reconcile_runs ORDER BY id DESC LIMIT ?", (int(limit),)
+    ).fetchall()
+    out = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["summary"] = json.loads(item.pop("summary_json") or "{}")
+        except (TypeError, ValueError):
+            item["summary"] = {}
+        out.append(item)
+    return out
 
 
 def max_issue() -> Optional[str]:
@@ -232,6 +273,7 @@ def _row_to_draw(r: sqlite3.Row) -> Dict:
         "blue": r["blue"],
         "order": [r[f"o{i}"] for i in range(1, 7)],
         "sales": r["sales"], "pool": r["pool"],
+        "source": r["source"] if "source" in r.keys() else "17500",
     }
 
 
@@ -364,11 +406,22 @@ def save_eval_meta(issue: str, tickets: List[Dict], result: Optional[Dict] = Non
              json.dumps({"ml": result.get("ml", {}), "llm_models": result.get("llm_models", [])}, ensure_ascii=False),
              json.dumps({
                  "llm_used": bool(result.get("llm_used")),
+                  "requested_tickets": result.get("requested_tickets"),
+                  "actual_tickets": result.get("actual_tickets", len(tickets)),
+                  "shortfall_reason": result.get("shortfall_reason"),
                  "n_tickets": len(rows),
                  # M4.2：记录生成预测时的方法开关模式与规格快照，供开奖后长期对照
                  "method_mode": getattr(config, "METHOD_MODE", "production"),
                  "methods_raw": getattr(config, "METHODS_RAW", ""),
-                 "methods_spec": {
+                 "configured_spec": {
+                      "mode": config.METHODS_SPEC.get("mode", "all"),
+                      "tokens": sorted(config.METHODS_SPEC.get("tokens", set())),
+                  },
+                  "effective_spec": {
+                      "mode": _methods.effective_spec(config.METHOD_MODE, config.METHODS_SPEC).get("mode", "all"),
+                      "tokens": sorted(_methods.effective_spec(config.METHOD_MODE, config.METHODS_SPEC).get("tokens", set())),
+                  },
+                  "methods_spec": {
                      "mode": config.METHODS_SPEC.get("mode", "all"),
                      "tokens": sorted(config.METHODS_SPEC.get("tokens", set())),
                  },
@@ -419,6 +472,42 @@ def load_eval_meta(issue: Optional[str] = None) -> List[Dict]:
     return [dict(r) for r in get_conn().execute(sql, args).fetchall()]
 
 
+def _mean_ci95(values: List[float]) -> Dict:
+    """返回均值及正态近似 95% CI；样本不足时仍明确返回 n。"""
+    import math
+    n = len(values)
+    if not n:
+        return {"mean": None, "low": None, "high": None, "n": 0}
+    mean = sum(values) / n
+    if n < 2:
+        return {"mean": mean, "low": mean, "high": mean, "n": n}
+    sd = math.sqrt(sum((x - mean) ** 2 for x in values) / (n - 1))
+    margin = 1.96 * sd / math.sqrt(n)
+    return {"mean": mean, "low": mean - margin, "high": mean + margin, "n": n}
+
+
+def _rolling_issue_metrics(rows: List[Dict], windows=(10, 30, 60)) -> List[Dict]:
+    by_issue: Dict[str, Dict[str, List[float]]] = {}
+    for r in rows:
+        item = by_issue.setdefault(r["issue"], {"red": [], "blue": [], "roi": []})
+        item["red"].append(float(r["red_hits"]))
+        item["blue"].append(float(r["blue_hit"]))
+        item["roi"].append((float(r["reward"]) - float(r["ticket_cost"])) /
+                            max(1.0, float(r["ticket_cost"])))
+    issues = sorted(by_issue)
+    out = []
+    for idx, issue in enumerate(issues):
+        point = {"issue": issue}
+        for window in windows:
+            selected = issues[max(0, idx - window + 1):idx + 1]
+            vals = {k: [v for i in selected for v in by_issue[i][k]] for k in ("red", "blue", "roi")}
+            point[f"w{window}"] = {"red_hits": _mean_ci95(vals["red"]),
+                                    "blue_hit_rate": _mean_ci95(vals["blue"]),
+                                    "roi": _mean_ci95(vals["roi"])}
+        out.append(point)
+    return out
+
+
 def cumulative_eval(method: Optional[str] = None, limit: int = 120) -> Dict:
     sql = "SELECT * FROM eval_details"
     args: List = []
@@ -443,7 +532,63 @@ def cumulative_eval(method: Optional[str] = None, limit: int = 120) -> Dict:
                     "reward_total": item["reward"], "cost_total": cost,
                     "roi": (item["reward"] - cost) / max(1.0, cost),
                     "rows": list(reversed(item["rows"][-limit:]))})
-    return {"methods": out, "sample_limit": limit}
+    for item, group in zip(out, by_method.values()):
+        item["rolling"] = _rolling_issue_metrics(group["rows"][-limit:])
+    return {"methods": out, "sample_limit": limit,
+            "ci": "normal_approx_95", "rolling_windows": [10, 30, 60]}
+
+
+def _two_sided_sign_p(values: List[float]) -> Optional[float]:
+    """无 scipy 依赖的双侧 sign-test p 值，忽略恰好相等的配对。"""
+    signs = [1 if v > 0 else -1 for v in values if v != 0]
+    n = len(signs)
+    if not n:
+        return None
+    k = min(sum(s > 0 for s in signs), sum(s < 0 for s in signs))
+    return min(1.0, 2.0 * sum(__import__("math").comb(n, i) for i in range(k + 1)) / (2 ** n))
+
+
+def method_recommendations(limit: Optional[int] = None, min_sample: Optional[int] = None) -> Dict:
+    """按期比较方法与 uniform 基线，输出 M4.2 保留/关闭建议。
+
+    只有同一期同时存在两种方法且达到 min_sample 才给出建议；120 期规则只产生
+    ``disable_candidate`` 提示，不会静默修改生产配置。奖励差异仅用于方法比较，
+    不代表中奖概率或投资建议。
+    """
+    from . import config
+    limit = int(limit if limit is not None else config.METHOD_RECOMMENDATION_DISABLE_ISSUES)
+    min_sample = int(min_sample if min_sample is not None else config.METHOD_RECOMMENDATION_MIN_ISSUES)
+    rows = [dict(r) for r in get_conn().execute(
+        "SELECT issue, method, SUM(reward) reward, SUM(ticket_cost) cost, "
+        "AVG(red_hits) red, AVG(blue_hit) blue FROM eval_details "
+        "GROUP BY issue, method ORDER BY issue DESC").fetchall()]
+    by_issue: Dict[str, Dict[str, Dict]] = {}
+    for r in rows:
+        by_issue.setdefault(r["issue"], {})[r["method"]] = r
+    baseline = "uniform"
+    methods = sorted({r["method"] for r in rows if r["method"] != baseline})
+    recommendations = []
+    for method in methods:
+        pairs = [(d[method], d[baseline]) for d in by_issue.values()
+                 if method in d and baseline in d]
+        pairs = pairs[:int(limit)]
+        diffs = [float(a["reward"] or 0) - float(b["reward"] or 0) for a, b in pairs]
+        p = _two_sided_sign_p(diffs)
+        n = len(pairs)
+        status = "insufficient_sample"
+        if n >= int(min_sample):
+            status = "keep_or_research" if (p is not None and p < 0.05) else "monitor"
+            if n >= 120 and (p is None or p >= 0.05) and sum(float(a["cost"] or 0) for a, _ in pairs) > 0:
+                status = "disable_candidate"
+        recommendations.append({"method": method, "baseline": baseline, "paired_issues": n,
+                                "window": min(int(limit), n), "paired_sign_p": p,
+                                "mean_reward_delta": (sum(diffs) / n if n else None),
+                                "cost_total": sum(float(a["cost"] or 0) for a, _ in pairs),
+                                "status": status,
+                                "action": "手动关闭并保留研究模式" if status == "disable_candidate" else "继续累积样本"})
+    return {"baseline": baseline, "limit": int(limit), "min_sample": int(min_sample),
+            "recommendations": recommendations,
+            "note": "paired sign-test 仅作运营筛查；样本不足不自动决策，系统不会自动修改方法开关。"}
 
 
 def save_eval(issue: str, red_hits: int, blue_hit: int, reward: float, ticket_count: int):

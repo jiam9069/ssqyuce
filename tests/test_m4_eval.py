@@ -28,6 +28,8 @@ def test_m4_eval_details_idempotent(tmp_path):
     assert len(report["methods"]) == 1
     assert report["methods"][0]["tickets"] == 2
     assert len(report["methods"][0]["rows"]) == 2
+    assert report["rolling_windows"] == [10, 30, 60]
+    assert report["methods"][0]["rolling"][-1]["w10"]["red_hits"]["n"] == 2
 
 
 def test_m4_eval_meta_methods(tmp_path):
@@ -40,6 +42,18 @@ def test_m4_eval_meta_methods(tmp_path):
     rows = db.load_eval_meta("2026002")
     assert {r["method"] for r in rows} == {"mixed"}
     assert rows[0]["llm_enabled"] == 1
+
+
+def test_m4_method_recommendations_need_paired_uniform(tmp_path):
+    db = _setup_db(tmp_path)
+    draw = {"issue": "2026004", "date": "2026-01-01", "reds": [1, 2, 3, 4, 5, 6], "blue": 7}
+    stat = [{"reds": [1, 2, 3, 4, 5, 8], "blue": 7}]
+    uniform = [{"reds": [10, 11, 12, 13, 14, 15], "blue": 1}]
+    db.save_eval_details("2026004", "stat:freq", stat, draw)
+    db.save_eval_details("2026004", "uniform", uniform, draw)
+    report = db.method_recommendations(limit=120, min_sample=2)
+    assert report["recommendations"][0]["paired_issues"] == 1
+    assert report["recommendations"][0]["status"] == "insufficient_sample"
 
 
 def test_m4_eval_meta_snapshot_has_methods(tmp_path):

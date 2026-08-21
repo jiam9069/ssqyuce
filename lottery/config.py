@@ -14,6 +14,8 @@ RAW_DIR = DATA_DIR / "raw"
 DB_PATH = Path(os.environ.get("LOTT_DB", str(DATA_DIR / "ssq.db")))
 
 DATA_URL = "http://e.17500.cn/getData/ssq.TXT"
+# M4.4：可选备用源，需返回与 ssq.TXT 相同的 31 字段格式；空值则只运行主源。
+BACKUP_DATA_URL = (os.environ.get("LOTT_BACKUP_DATA_URL") or "").strip() or None
 
 # ---------- 版本信息（前端主页 / API / GitHub 说明统一引用） ----------
 
@@ -56,6 +58,10 @@ N_TICKETS = int(os.environ.get("LOTT_N_TICKETS", "10"))             # 最终输�
 LLM_TIMEOUT = float(os.environ.get("LOTT_LLM_TIMEOUT", "60"))
 
 # ---------- M4.2 方法 A/B 开关 ----------
+# 运营筛查阈值：60 期开始提示，连续 120 期无显著差异才允许人工考虑关闭。
+METHOD_RECOMMENDATION_MIN_ISSUES = int(os.environ.get("LOTT_METHOD_RECOMMENDATION_MIN_ISSUES", "60"))
+METHOD_RECOMMENDATION_DISABLE_ISSUES = int(os.environ.get("LOTT_METHOD_RECOMMENDATION_DISABLE_ISSUES", "120"))
+METHOD_RECOMMENDATION_ALPHA = float(os.environ.get("LOTT_METHOD_RECOMMENDATION_ALPHA", "0.05"))
 # LOTT_METHODS（逗号/空格分隔，未设置 = 全部启用）：可关闭/保留任意方法通道
 # （stat 各基线 / ML / LLM / uniform），令牌可写全名（stat:freq）或族名（stat）。
 # LOTT_METHOD_MODE：production（默认，严格按开关过滤）/ research（忽略开关、全部启用，
@@ -91,12 +97,16 @@ def set_methods(raw: Optional[str] = None, mode: Optional[str] = None) -> Dict:
     global METHODS_RAW, METHOD_MODE, METHODS_SPEC
     if raw is not None:
         METHODS_RAW = str(raw or "").strip()
+        err = _methods.validate_raw(METHODS_RAW)
+        if err:
+            raise ValueError(err)
         os.environ["LOTT_METHODS"] = METHODS_RAW
     if mode is not None:
         METHOD_MODE = _methods.normalize_mode(mode)
         os.environ["LOTT_METHOD_MODE"] = METHOD_MODE
     METHODS_SPEC = _methods.implement_spec(METHODS_RAW)
-    _save_methods_config()
+    if not _save_methods_config():
+        raise OSError("方法配置持久化失败")
     print(f"[config] 方法开关已更新: mode={METHOD_MODE}, raw='{METHODS_RAW}'")
     return methods_status()
 
@@ -113,7 +123,11 @@ def _load_runtime_methods_config() -> None:
         return
     changed = False
     if "raw" in conf and isinstance(conf["raw"], str):
-        METHODS_RAW = conf["raw"].strip()
+        candidate = conf["raw"].strip()
+        if _methods.validate_raw(candidate):
+            print("[config] 警告：methods_config.json 含非法 methods，忽略运行时配置")
+            return
+        METHODS_RAW = candidate
         os.environ["LOTT_METHODS"] = METHODS_RAW
         changed = True
     if "mode" in conf and isinstance(conf["mode"], str):
@@ -129,12 +143,14 @@ def _save_methods_config() -> None:
     """把当前方法开关写入 data/methods_config.json（与 llm_config.json 同目录）。"""
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        METHODS_CONFIG_FILE.write_text(
-            json.dumps({"mode": METHOD_MODE, "raw": METHODS_RAW},
-                       ensure_ascii=False, indent=2),
-            encoding="utf-8")
+        payload = json.dumps({"mode": METHOD_MODE, "raw": METHODS_RAW}, ensure_ascii=False, indent=2)
+        tmp = METHODS_CONFIG_FILE.with_suffix(".tmp")
+        tmp.write_text(payload, encoding="utf-8")
+        os.replace(str(tmp), str(METHODS_CONFIG_FILE))
     except OSError as e:
         print(f"[config] 方法配置写入失败: {e}")
+        return False
+    return True
 
 # ---------- M3 LLM 离线评估与研究专用配置 ----------
 
@@ -197,6 +213,16 @@ ML_CAL_CV = int(os.environ.get("LOTT_ML_CAL_CV", "2"))              # 概率校�
 SCHEDULER_ENABLED = os.environ.get("LOTT_SCHEDULER", "0") == "1"
 DRAW_WEEKDAYS = (1, 3, 6)  # 周一=0 … 周日=6 -> 周二/四/日
 DRAW_TIME = "21:35"
+
+# ---------- M4.3 开奖通知 ----------
+NOTIFY_WEBHOOK = (os.environ.get("LOTT_NOTIFY_WEBHOOK") or "").strip()
+NOTIFY_SMTP_HOST = (os.environ.get("LOTT_NOTIFY_EMAIL_SMTP_HOST") or "").strip()
+NOTIFY_SMTP_PORT = int(os.environ.get("LOTT_NOTIFY_EMAIL_SMTP_PORT", "587"))
+NOTIFY_SMTP_TLS = os.environ.get("LOTT_NOTIFY_EMAIL_SMTP_TLS", "1") == "1"
+NOTIFY_SMTP_USER = (os.environ.get("LOTT_NOTIFY_EMAIL_SMTP_USER") or "").strip()
+NOTIFY_SMTP_PASSWORD = os.environ.get("LOTT_NOTIFY_EMAIL_SMTP_PASSWORD") or ""
+NOTIFY_EMAIL_FROM = (os.environ.get("LOTT_NOTIFY_EMAIL_FROM") or "").strip()
+NOTIFY_EMAIL_TO = (os.environ.get("LOTT_NOTIFY_EMAIL_TO") or "").strip()
 
 
 # ---------- 运行时 LLM 配置持久化（Web 界面写入，优先于 .env） ----------

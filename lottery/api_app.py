@@ -34,6 +34,18 @@ app.mount("/static", _NoCacheStaticFiles(directory=str(STATIC_DIR)), name="stati
 
 # ---------- 数据 ----------
 
+@app.get("/api/data/reconcile")
+def data_reconcile():
+    from . import data_check
+    return data_check.run()
+
+
+@app.get("/api/data/reconcile/history")
+def reconcile_history(limit: int = Query(30, ge=1, le=500)):
+    """返回多源对账审计记录，便于追踪告警与恢复。"""
+    return {"items": db.load_reconcile_runs(limit)}
+
+
 @app.get("/api/health")
 def health():
     return {
@@ -176,8 +188,16 @@ def eval_backtest(issues: int = Query(120), n: int = Query(10)):
 
 @app.post("/api/eval/online")
 def eval_online():
-    from . import evaluate
-    return evaluate.online_check()
+    from . import evaluate, notify
+    result = evaluate.online_check()
+    result["notification"] = notify.notify_after_check(result)
+    return result
+
+
+@app.get("/api/notify/status")
+def notify_status():
+    from . import notify
+    return notify.status()
 
 
 @app.get("/api/eval/cumulative")
@@ -189,6 +209,13 @@ def eval_cumulative(method: Optional[str] = Query(None), limit: int = Query(120,
 @app.get("/api/eval/meta")
 def eval_meta(issue: Optional[str] = Query(None)):
     return {"items": db.load_eval_meta(issue)}
+
+
+@app.get("/api/eval/recommendations")
+def eval_recommendations(limit: Optional[int] = Query(None, ge=1, le=1000),
+                        min_sample: Optional[int] = Query(None, ge=1, le=1000)):
+    """M4.2：按期开出的方法与 uniform 基线做 paired 筛查，输出运营建议。"""
+    return db.method_recommendations(limit=limit, min_sample=min_sample)
 
 
 @app.get("/api/eval/export.csv")
@@ -506,7 +533,10 @@ def update_methods_config(payload: dict):
                 {"ok": False, "error": f"mode 必须是 {'/'.join(METH.MODES)}，收到 {mode!r}"},
                 status_code=400)
         mode = m
-    st = config.set_methods(raw, mode)
+    try:
+        st = config.set_methods(raw, mode)
+    except (ValueError, OSError) as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
     return {"ok": True, **st}
 
 
@@ -562,7 +592,9 @@ def _scheduler_step():
     except Exception as e:  # noqa: BLE001
         print("[scheduler] 抓取失败:", e)
         return
-    evaluate.online_check()
+    check_result = evaluate.online_check()
+    from . import notify
+    print("[scheduler] 通知结果:", notify.notify_after_check(check_result))
     draws = db.load_draws()
     issue = BT.next_issue(draws[-1]["issue"])
     if not db.load_predictions(issue):

@@ -188,6 +188,7 @@
             <button onclick="runOfflineEval()">📊 离线评估</button>
             <button onclick="runOnline()">✔ 在线对照</button>
             <button onclick="loadCumulativeEval()">📈 累计报表</button>
+            <button onclick="loadMethodRecommendations()">🧭 方法建议</button>
             <button onclick="exportCumulativeEval()">⬇ 导出 CSV</button>
             <button id="btnMlEval" onclick="runMlEval()">🤖 ML 模型评估</button>
             <span id="mlEvalStatus" class="test-result"></span>
@@ -197,6 +198,7 @@
           <div id="evalArea"><div class="note">点击「离线评估」生成结果（约需 30~120 秒）。</div></div>
           <div id="methodEvalLine" class="note" style="margin:6px 0;font-size:12px"></div>
           <div id="cumulativeEvalArea" style="margin-top:12px;"><div class="note">📈 在线累计报表：点击「累计报表」加载按方法的长期对照。</div></div>
+          <div id="methodRecommendationArea" style="margin-top:12px;"><div class="note">🧭 方法建议：至少 60 期且需同期开出 uniform 基线后才给出筛查结论。</div></div>
           <div id="mlEvalArea" style="margin-top:12px;"><div class="note">🤖 ML 概率模型状态加载中…</div></div>
           <div id="llmEvalArea" style="margin-top:12px;"><div class="note">🧠 LLM 三通道评估（stat / stat+LLM / random）：后台任务运行，完成后自动展示对比、paired p 值与成本。</div></div>
         </div>

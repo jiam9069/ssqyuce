@@ -28,6 +28,14 @@ def client(tmp_path, monkeypatch):
     return TestClient(api_app.app)
 
 
+def test_recommendations_endpoint(client):
+    r = client.get("/api/eval/recommendations?limit=120&min_sample=60")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["baseline"] == "uniform"
+    assert "recommendations" in data
+
+
 def test_methods_status(client):
     r = client.get("/api/methods/status")
     assert r.status_code == 200

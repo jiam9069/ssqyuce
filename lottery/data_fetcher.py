@@ -25,6 +25,8 @@ def save_snapshot(text: str) -> str:
 def update_from_text(text: str) -> dict:
     """解析并增量入库，返回统计信息。"""
     draws = parser.parse_text(text)
+    for draw in draws:
+        draw["source"] = "17500"
     if not draws:
         raise ValueError("数据源为空")
     local_max = db.max_issue()

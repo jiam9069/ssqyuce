@@ -15,7 +15,7 @@
 >
 > 系统输出仅供研究参考，不构成中奖概率与投注建议。**理性购彩，量力而行。**
 
-## 🚀 最近升级概要（M1-M3 已上线 · M4.1 开发中 · v0.8.0）
+## 🚀 最近升级概要（M1-M3 已上线 · M4.3 开发中 · v0.8.0）
 
 - **M1 前端工作台**：单页重构为 Tab 工作台（预测中心 / 数据分析 / 规律研究 / 历史回放 / 评估报告 / 数据管理 / 设置）；
   预测可配置（注数 / LLM 开关）、每注复制 / 收藏 / 展开依据、号码点选统计卡、「我的号码诊断」、历史预测回放；
@@ -232,7 +232,11 @@ Dockerfile / docker-compose.yml
 | GET | `/api/predictions/last` | 最近一次预测 |
 | GET | `/api/draws/history` | 开奖历史（走势图用） |
 | POST | `/api/eval/backtest` | 离线引擎回测（约 60-120s） |
-| POST | `/api/eval/online` | 在线预测对照 |
+| POST | `/api/eval/online` | 在线预测对照（完成后按配置发送开奖通知） |
+| GET | `/api/eval/cumulative` | 按方法累计评估、10/30/60 期滚动指标与 95% CI |
+| GET | `/api/eval/recommendations` | M4.2 方法与 uniform 基线的保留/关闭筛查 |
+| GET | `/api/eval/export.csv` | 导出累计评估逐注 CSV |
+| GET | `/api/notify/status` | 开奖通知通道配置状态 |
 | GET | `/api/ml/status` | ML 概率模型状态（是否就绪 / 已训练） |
 | POST | `/api/ml/eval` | ML walk-forward 评估（Brier/log-loss/校准/paired，约 2-5 分钟） |
 | POST | `/api/mining/run` | 运行规律自动挖掘 |
