@@ -16,6 +16,15 @@ _usage_lock = threading.Lock()
 from . import config
 
 
+class LLMChannelError(RuntimeError):
+    """LLM 通道不可用 / 超时（异常消息面向用户可读）。
+
+    M4.5 快速失败：Web 预测明确要求使用大模型（use_llm=true）时，
+    通道未配置、被停用、HTTP 错误、读取超时或总耗时超限都会抛出本异常，
+    由 API 层转换为「预测失败」的明确提示，不再静默降级为纯统计模型。
+    """
+
+
 def _extract_json(text: str) -> Optional[dict]:
     """从模型输出中提取 JSON（容忍 markdown 代码块与前后杂讯）。"""
     if not text:
@@ -49,18 +58,28 @@ def _extract_json(text: str) -> Optional[dict]:
 
 def chat(system: str, user: str, max_tokens: int = 2000,
          temperature: float = 0.8, timeout: Optional[float] = None,
-         model_cfg: Optional[Dict] = None) -> Optional[str]:
-    """调用 OpenAI 兼容 chat/completions，返回 content（失败返回 None）。
+         model_cfg: Optional[Dict] = None,
+         deadline: Optional[float] = None, strict: bool = False) -> Optional[str]:
+    """调用 OpenAI 兼容 chat/completions，返回 content。
 
     model_cfg: {"name","base_url","api_key","model"}；缺省用主通道配置。
-    仓库不内置任何 URL / Key：未配置通道时直接返回 None（上层降级为统计模型）。
+    仓库不内置任何 URL / Key：未配置通道时返回 None（上层降级为统计模型）。
+    deadline: 单次预测 LLM 阶段的墙钟截止时间戳（time.time() 口径）；
+              每次尝试的单次超时会被钳制在剩余预算内，超预算立即放弃。
+    strict:  True 时任何失败（未配置/HTTP 错误/超时/空返回）抛 LLMChannelError，
+            供 Web 预测快速失败；False 保持原有降级语义（返回 None）。
     """
     if config.LLM_DISABLED:
+        if strict:
+            raise LLMChannelError("LLM 已被停用（设置页「停用 LLM」或 LOTT_LLM_DISABLED=1）")
         return None
     if model_cfg is None:
         if not (config.LLM_BASE_URL and config.LLM_API_KEY and config.LLM_MODEL_LIST):
-            print("[llm] 未配置 LLM 通道（请设置 LOTT_LLM_BASE_URL / LOTT_LLM_API_KEY / "
-                  "LOTT_LLM_MODEL 或 .env），降级为纯统计模型")
+            msg = ("LLM 通道未配置（请设置 LOTT_LLM_BASE_URL / LOTT_LLM_API_KEY / "
+                   "LOTT_LLM_MODEL，或在设置页配置并保存）")
+            if strict:
+                raise LLMChannelError(msg)
+            print("[llm] " + msg + "，降级为纯统计模型")
             return None
         url = config.LLM_BASE_URL + "/chat/completions"
         api_key = config.LLM_API_KEY
@@ -89,9 +108,17 @@ def chat(system: str, user: str, max_tokens: int = 2000,
         if time.time() - t_start > 600:
             last_err = f"chat 总耗时超过 600s 上限（当前第 {attempt} 次尝试），放弃"
             break
+        if deadline is not None:
+            remaining = deadline - time.time()
+            if remaining <= 1.0:
+                last_err = "LLM 总耗时超限（超出本次预测的大模型时间预算，放弃后续尝试）"
+                break
+            # 单次尝试超时钳制在剩余预算内，保证整条链在预算内返回
+            eff_timeout = min(timeout or config.LLM_TIMEOUT, remaining)
+        else:
+            eff_timeout = timeout or config.LLM_TIMEOUT
         try:
-            r = requests.post(url, json=payload, headers=headers,
-                              timeout=timeout or config.LLM_TIMEOUT)
+            r = requests.post(url, json=payload, headers=headers, timeout=eff_timeout)
             if r.status_code != 200:
                 last_err = f"HTTP {r.status_code}: {r.text[:200]}"
                 continue
@@ -115,7 +142,8 @@ def chat(system: str, user: str, max_tokens: int = 2000,
                 print(f"[llm] {model} 推理占满预算，放大 max_tokens 重试一次")
                 attempt -= 1
                 continue
-            return None
+            last_err = f"模型返回空 content（finish_reason={finish}）"
+            break
         except Exception as e:  # noqa: BLE001
             last_err = str(e)
             if isinstance(e, requests.exceptions.ReadTimeout) and not boosted:
@@ -125,6 +153,8 @@ def chat(system: str, user: str, max_tokens: int = 2000,
                 print(f"[llm] 读取超时，放大 max_tokens 重试一次")
                 attempt -= 1
                 continue
+    if strict:
+        raise LLMChannelError(f"LLM 调用失败: {last_err}")
     # 降级：记录但不抛出，让上层走统计兜底
     print(f"[llm] 调用失败（3 次重试后）: {last_err}")
     return None
@@ -132,9 +162,11 @@ def chat(system: str, user: str, max_tokens: int = 2000,
 
 def chat_json(system: str, user: str, max_tokens: int = 2000,
               temperature: float = 0.8,
-              model_cfg: Optional[Dict] = None) -> Optional[dict]:
+              model_cfg: Optional[Dict] = None,
+              deadline: Optional[float] = None,
+              strict: bool = False) -> Optional[dict]:
     text = chat(system, user, max_tokens=max_tokens, temperature=temperature,
-                model_cfg=model_cfg)
+                model_cfg=model_cfg, deadline=deadline, strict=strict)
     if not text:
         return None
     return _extract_json(text)

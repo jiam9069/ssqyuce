@@ -161,8 +161,14 @@ def run_backtests():
 @app.api_route("/api/predict", methods=["GET", "POST"])
 def predict(use_llm: Optional[bool] = None, n_tickets: int = 10,
             regenerate: bool = False):
-    """生成下一期预测；目标期已有预测且未要求重新生成时复用缓存。"""
+    """生成下一期预测；目标期已有预测且未要求重新生成时复用缓存。
+
+    M4.5 快速失败：use_llm=true（前端勾选「使用大模型」）时 LLM 通道
+    不可用/超时/输出异常，直接返回 503 + 明确错误信息（预测失败），
+    不再静默降级为纯统计模型；use_llm=false 走纯统计，行为不变。
+    """
     from . import backtest as BT, engine
+    from .llm_client import LLMChannelError
     draws = db.load_draws()
     if not draws:
         return JSONResponse({"ok": False, "error": "本地暂无开奖数据，请先刷新"}, status_code=400)
@@ -172,7 +178,18 @@ def predict(use_llm: Optional[bool] = None, n_tickets: int = 10,
         if existing:
             return {"issue": issue, "tickets": existing, "from_cache": True,
                     "llm_used": any(t["method"] == "llm" for t in existing)}
-    res = engine.predict_next(draws, use_llm=use_llm, n_tickets=n_tickets)
+    try:
+        res = engine.predict_next(draws, use_llm=use_llm, n_tickets=n_tickets,
+                                  llm_required=(use_llm is True))
+    except LLMChannelError as e:
+        return JSONResponse(
+            {"ok": False, "llm_required": True,
+             "error": (f"预测失败：大模型不可用或超时（{e}）。"
+                       "已停止降级为纯统计模式：请在「设置」页检查并修复 LLM 通道，"
+                       "或取消勾选「使用大模型」后用纯统计模式重试。")},
+            status_code=503)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": f"预测引擎异常: {e}"}, status_code=500)
     res["from_cache"] = False
     return res
 

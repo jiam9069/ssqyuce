@@ -20,7 +20,17 @@ const pendingTasks = {};
 
 async function api(path, opts = {}) {
   const r = await fetch(path, opts);
-  if (!r.ok) throw new Error("HTTP " + r.status);
+  if (!r.ok) {
+    // 优先展示后端 JSON 里的 error 详情（如“大模型不可用或超时(...)”），
+    // 解析失败（如 Cloudflare 524 HTML）时退回 HTTP 状态码。
+    let msg = "HTTP " + r.status;
+    try {
+      const t = await r.text();
+      const j = JSON.parse(t);
+      if (j && j.error) msg = j.error;
+    } catch (_) {}
+    throw new Error(msg);
+  }
   return r.json();
 }
 

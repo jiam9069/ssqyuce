@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import json
 import random
+import time
 from typing import Dict, List, Optional
 
 import numpy as np
 
 from . import backtest as BT
 from . import config, db, features as F, llm_client, methods as METH, ml_model, models as M
+from .llm_client import LLMChannelError
 
 R_MAX, B_MAX = 33, 16
 
@@ -237,14 +239,21 @@ def _pick_verify_cfg(model_cfgs: List[Dict]) -> Optional[Dict]:
 
 def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
                 rng: random.Random, llm_samples: Optional[int] = None,
-                llm_verify: Optional[bool] = None) -> List[Dict]:
-    """多模型 LLM 采样生成候选（失败自动降级为空）。
+                llm_verify: Optional[bool] = None,
+                deadline: Optional[float] = None,
+                strict: bool = False) -> List[Dict]:
+    """多模型 LLM 采样生成候选。
 
     llm_samples: 覆盖全局 LLM_SAMPLES（离线评估可传 1 以控制成本与时长）。
     llm_verify: 是否执行第三轮校验（默认跟随 config.LLM_VERIFY_ENABLED）。
+    deadline: LLM 阶段墙钟截止时间戳（time.time() 口径），钳制每次调用超时。
+    strict: True 时通道不可用/超时/输出不可解析直接抛 LLMChannelError（Web 预测
+            快速失败，不再降级）；False 保持原有“失败返回空列表降级统计”语义。
     """
     from concurrent.futures import ThreadPoolExecutor
     if config.LLM_DISABLED:
+        if strict:
+            raise LLMChannelError("LLM 已被停用（设置页「停用 LLM」或 LOTT_LLM_DISABLED=1）")
         return []
     model_cfgs = config.llm_model_list()
     if config.LLM_EVAL_MODEL:
@@ -254,6 +263,8 @@ def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
         if filtered:
             model_cfgs = filtered
     if not model_cfgs:
+        if strict:
+            raise LLMChannelError("LLM 通道未配置（API 地址 / Key / 模型缺失，请在设置页配置并保存）")
         print("[llm] 无可用模型配置，跳过 LLM 通道")
         return []
     ctx = build_context(draws, stats, patterns)
@@ -265,8 +276,11 @@ def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
             llm_client.compact_stats(ctx["stats"]), ctx["recent"], ctx["patterns"],
             feedback=ctx.get("feedback")),
         max_tokens=1600, temperature=0.7, model_cfg=model_cfgs[0],
+        deadline=deadline, strict=strict,
     )
     if obs is None:
+        if strict:
+            raise LLMChannelError("LLM 观察轮返回内容无法解析为 JSON（模型输出异常）")
         print("[llm] 观察生成失败，跳过 LLM 通道")
         return []
 
@@ -280,17 +294,26 @@ def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
                 llm_client.compact_stats(ctx["stats"]), ctx["recent"], ctx["patterns"], obs,
                 feedback=ctx.get("feedback")),
             max_tokens=2000, temperature=0.9, model_cfg=cfg,
+            deadline=deadline, strict=strict,
         )
         return _parse_tickets_response(res, cfg["name"])
 
     n_samples = int(llm_samples) if llm_samples else config.LLM_SAMPLES
     calls = [model_cfgs[i % n_models] for i in range(n_samples)]
+    call_errors: List[str] = []
     with ThreadPoolExecutor(max_workers=min(len(calls), 4)) as ex:
         futures = [ex.submit(_ticket_call, cfg) for cfg in calls]
         for f in futures:
-            tickets.extend(f.result())
+            try:
+                tickets.extend(f.result())
+            except LLMChannelError as e:  # strict 模式下单个采样失败不影响其余采样
+                call_errors.append(str(e))
+    if strict and not tickets:
+        raise LLMChannelError(call_errors[0] if call_errors
+                              else "LLM 选号轮未返回任何可解析的候选")
 
     # 第三轮校验（M3.2）：critique → 发现问题才 refine（低温 + 校验模型）
+    # 校验轮失败不致命（已有候选在手），严格模式下同样保留原候选
     if llm_verify is None:
         llm_verify = config.LLM_VERIFY_ENABLED
     if llm_verify and tickets:
@@ -302,14 +325,16 @@ def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
                     llm_client.critique_prompt(
                         llm_client.compact_stats(ctx["stats"]), ctx["recent"], ctx["patterns"],
                         ctx.get("feedback") or {}, tickets),
-                    max_tokens=600, temperature=0.2, model_cfg=vcfg)
+                    max_tokens=600, temperature=0.2, model_cfg=vcfg,
+                    deadline=deadline, strict=False)
                 if critique and critique.get("verdict") == "problematic":
                     refined = llm_client.chat_json(
                         llm_client.SYSTEM_BASE,
                         llm_client.refine_prompt(
                             llm_client.compact_stats(ctx["stats"]), critique, tickets,
                             feedback=ctx.get("feedback")),
-                        max_tokens=2000, temperature=0.2, model_cfg=vcfg)
+                        max_tokens=2000, temperature=0.2, model_cfg=vcfg,
+                        deadline=deadline, strict=False)
                     parsed = _parse_tickets_response(refined, vcfg.get("model", "verify"))
                     if parsed:
                         tickets = parsed
@@ -343,11 +368,19 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
                  use_ml: Optional[bool] = None,
                  rng: Optional[random.Random] = None,
                  llm_samples: Optional[int] = None,
-                 llm_verify: Optional[bool] = None) -> Dict:
+                 llm_verify: Optional[bool] = None,
+                 llm_required: bool = False,
+                 llm_deadline: Optional[float] = None) -> Dict:
     """对下一期生成预测。
 
     use_ml: 是否把 M2 ML 概率模型（GBDT+RF 集成）并入 Brier 加权融合；
             默认跟随 config.ML_ENABLED。
+    llm_required: M4.5 快速失败。True（Web 端明确勾选「使用大模型」）时，
+            LLM 通道不可用/超时/输出异常直接抛 LLMChannelError，由 API 层
+            转为「预测失败」明确提示，不再静默降级为纯统计模型。
+            False（调度器/离线评估/CLI）保持原有优雅降级语义。
+    llm_deadline: LLM 阶段墙钟截止时间戳；llm_required 时默认取
+            now + config.LLM_TOTAL_TIMEOUT，保证响应落在代理超时窗口内。
     """
     if use_llm is None:
         use_llm = not config.LLM_DISABLED
@@ -358,6 +391,17 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
     # 关闭的通道不生成候选（LLM 同时省 API 成本）
     use_llm = use_llm and METH.is_enabled("llm", methods_spec)
     use_ml = use_ml and METH.is_enabled("ml", methods_spec)
+    # M4.5 快速失败：明确要求 LLM 却用不上 → 直接失败并给出可读原因
+    if llm_required and not use_llm:
+        if config.LLM_DISABLED:
+            reason = "LLM 已被停用（设置页「停用 LLM」或 LOTT_LLM_DISABLED=1）"
+        elif not config.llm_configured():
+            reason = "LLM 通道未配置（API 地址 / Key / 模型缺失，请在设置页配置并保存）"
+        else:
+            reason = "LLM 方法通道已被方法开关关闭（LOTT_METHODS / 设置页方法开关）"
+        raise LLMChannelError(reason)
+    if llm_required and llm_deadline is None:
+        llm_deadline = time.time() + config.LLM_TOTAL_TIMEOUT
     n_tickets = n_tickets or config.N_TICKETS
     issue = BT.next_issue(draws[-1]["issue"])
 
@@ -404,16 +448,26 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
                 t["method"] = "uniform"
                 candidates.append(t)
 
-    # LLM 候选（任何异常都降级为纯统计，绝不让 LLM 拖死整次预测）
+    # LLM 候选
+    # M4.5：Web 预测（llm_required=True）严格模式——大模型不可用或超时直接抛错，
+    # 明确提示「预测失败」，不支持降级为纯统计；调度器/评估保持优雅降级。
     llm_cands = []  # type: ignore
     if use_llm:
-        try:
+        if llm_required:
             llm_cands = llm_tickets(draws, stats, patterns, rng,
                                     llm_samples=llm_samples,
-                                    llm_verify=llm_verify)
-        except Exception as e:  # noqa: BLE001
-            print(f"[engine] LLM 通道异常，降级为纯统计: {e}")
-            llm_cands = []
+                                    llm_verify=llm_verify,
+                                    deadline=llm_deadline, strict=True)
+            if not llm_cands:
+                raise LLMChannelError("LLM 选号轮未返回任何有效候选（模型输出不可解析）")
+        else:
+            try:
+                llm_cands = llm_tickets(draws, stats, patterns, rng,
+                                        llm_samples=llm_samples,
+                                        llm_verify=llm_verify)
+            except Exception as e:  # noqa: BLE001
+                print(f"[engine] LLM 通道异常，降级为纯统计: {e}")
+                llm_cands = []
     candidates.extend(llm_cands)
     llm_models_used = sorted({
         t["method"].split(":", 1)[1] for t in llm_cands if t["method"].startswith("llm:")
