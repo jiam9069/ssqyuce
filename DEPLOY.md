@@ -162,6 +162,8 @@ server {
 - **LLM 未生效/调用失败**：仓库不含任何模型凭据，需先在 `/opt/ssq/` 创建 `.env`（`cp .env.example .env` 后填写你自己的 `LOTT_LLM_BASE_URL` / `LOTT_LLM_API_KEY` / `LOTT_LLM_MODEL`），然后 `docker compose up -d`。确认 VPS 能访问该 API 域名；可临时设 `LOTT_LLM_DISABLED=1` 降级为纯统计模型排查；
 - **多模型**：同一通道多模型用 `LOTT_LLM_MODEL_LIST=模型A,模型B`；完全独立的通道（不同 URL/Key）用 `LOTT_LLM_EXTRA_MODELS=[{...}]`；
 - **预测很慢/超时**：推理型模型（如 deepseek 系列的 reasoner）单期约 2–4 分钟属正常；换轻量模型（如 minimax-m3）较快；
+- **LLM 不可用/超时 = 预测失败（v0.8.2 起，有意为之）**：Web 端勾选「使用大模型」时，若通道未配置、余额耗尽、限流或超时，`/api/predict` 直接返回 503 与中文原因（前端显示「❌ 预测失败：大模型不可用或超时(...)」），**不再静默降级**为纯统计；取消勾选「使用大模型」即可用纯统计模式。调度器/离线评估仍自动降级，不影响开奖日闭环；
+- **LOTT_LLM_TOTAL_TIMEOUT（默认 75s）**：单次预测 LLM 全阶段（观察+选号+校验）的墙钟预算，超时判定「大模型超时」并快速失败。**若站点在 Cloudflare 等 CDN 后面，该值 + 约 5s 统计开销必须 < CDN 代理超时（CF 为 100s，否则 HTTP 524）**，同时反代 `proxy_read_timeout` 应大于该值；直连部署（无 CDN）可按模型速度调大，如 `LOTT_LLM_TOTAL_TIMEOUT=200`。
 - **时区**：已设 `TZ=Asia/Shanghai`，调度以北京时间为准；
 - **合规**：页面与输出已含免责声明，勿对外声称"可预测中奖"；建议反代 + 简单鉴权（Caddy `basic_auth`）后再公网开放。
 
