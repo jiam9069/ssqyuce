@@ -269,19 +269,39 @@ def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
         return []
     ctx = build_context(draws, stats, patterns)
 
-    # 观察轮次
-    obs = llm_client.chat_json(
-        llm_client.SYSTEM_BASE,
-        llm_client.observations_prompt(
-            llm_client.compact_stats(ctx["stats"]), ctx["recent"], ctx["patterns"],
-            feedback=ctx.get("feedback")),
-        max_tokens=1600, temperature=0.7, model_cfg=model_cfgs[0],
-        deadline=deadline, strict=strict,
-    )
+    # 观察轮次：多模型轮转尝试（任一成功即用）。
+    # 单模型挂掉（限流/参数不兼容/余额）不应废掉整个 LLM 通道——
+    # 配置多个模型（LOTT_LLM_MODEL_LIST / LOTT_LLM_EXTRA_MODELS）即自动获得观察轮容错。
+    obs_rotation: List[Dict] = []
+    _seen = set()
+    for c in model_cfgs:
+        k = (str(c.get("base_url")), str(c.get("model")))
+        if k in _seen:
+            continue
+        _seen.add(k)
+        obs_rotation.append(c)
+    obs = None
+    last_obs_err: Optional[str] = None
+    for c in obs_rotation:
+        try:
+            obs = llm_client.chat_json(
+                llm_client.SYSTEM_BASE,
+                llm_client.observations_prompt(
+                    llm_client.compact_stats(ctx["stats"]), ctx["recent"], ctx["patterns"],
+                    feedback=ctx.get("feedback")),
+                max_tokens=1600, temperature=0.7, model_cfg=c,
+                deadline=deadline, strict=strict,
+            )
+        except LLMChannelError as e:
+            last_obs_err = str(e)
+            obs = None
+        if obs is not None:
+            break
     if obs is None:
         if strict:
-            raise LLMChannelError("LLM 观察轮返回内容无法解析为 JSON（模型输出异常）")
-        print("[llm] 观察生成失败，跳过 LLM 通道")
+            raise LLMChannelError(last_obs_err or
+                                  "LLM 观察轮返回内容无法解析为 JSON（全部模型尝试失败）")
+        print(f"[llm] 观察生成失败（已尝试 {len(obs_rotation)} 个模型），跳过 LLM 通道")
         return []
 
     n_models = len(model_cfgs)

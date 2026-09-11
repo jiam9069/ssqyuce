@@ -97,12 +97,24 @@ def chat(system: str, user: str, max_tokens: int = 2000,
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
+    # M4.5：合并请求级附加参数（reasoning_effort / enable_thinking 等）。
+    # 默认 LOTT_LLM_EXTRA_BODY 应用于所有模型；LOTT_LLM_EXTRA_BODY_MAP 按模型覆盖。
+    # 核心请求字段受保护，附加参数只能新增网关特有开关，不能改写请求主体。
+    extra = dict(config.LLM_EXTRA_BODY_DEFAULT)
+    per_model = config.LLM_EXTRA_BODY_BY_MODEL.get(model)
+    if per_model:
+        extra.update(per_model)
+    for k in ("model", "messages", "max_tokens", "temperature"):
+        extra.pop(k, None)
+    if extra:
+        payload.update(extra)
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
     last_err = None
     boosted = False  # 推理型模型（如 deepseek-v4-flash）空 content 时放大预算重试一次
+    rate_retries = 0  # 429/5xx 瞬态错误退避重试计数（不消耗 attempt）
     t_start = time.time()  # M3.4：单次 chat 总耗时硬上限，防止上游挂起拖死整条链
     for attempt in range(3):
         if time.time() - t_start > 600:
@@ -121,6 +133,18 @@ def chat(system: str, user: str, max_tokens: int = 2000,
             r = requests.post(url, json=payload, headers=headers, timeout=eff_timeout)
             if r.status_code != 200:
                 last_err = f"HTTP {r.status_code}: {r.text[:200]}"
+                # 429 限流 / 5xx 网关错误属瞬态：短退避后重试（不消耗 attempt，限 3 次）
+                if (r.status_code == 429 or r.status_code >= 500) and rate_retries < 3:
+                    rate_retries += 1
+                    sleep_s = min(2.0 * rate_retries, 6.0)
+                    if deadline is not None:
+                        sleep_s = min(sleep_s, max(0.0, deadline - time.time() - 1.0))
+                    if sleep_s >= 0.5:
+                        print(f"[llm] HTTP {r.status_code}（瞬态），退避 {sleep_s:.0f}s 重试"
+                              f"（第 {rate_retries}/3 次）")
+                        time.sleep(sleep_s)
+                        attempt -= 1
+                        continue
                 continue
             data = r.json()
             msg = data["choices"][0]["message"]

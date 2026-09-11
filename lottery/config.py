@@ -23,7 +23,7 @@ BACKUP_DATA_URL = (os.environ.get("LOTT_BACKUP_DATA_URL") or "").strip() or None
 
 # ---------- 版本信息（前端主页 / API / GitHub 说明统一引用） ----------
 
-APP_VERSION = "0.8.2"          # M4.5 LLM 不可用快速失败（禁止静默降级）
+APP_VERSION = "0.8.3"          # M4.5 LLM 网关兼容：extra body / 429 退避 / 观察轮轮转
 APP_BUILD = "2026-09-M4.5"     # 构建标识（M4 长期运营）
 APP_MILESTONES = {
     "M1": {"status": "done",    "desc": "前端 Tab 工作台 + 规律库扩容 29 条 + 自动挖掘管道 + 任务系统"},
@@ -64,6 +64,43 @@ LLM_TIMEOUT = float(os.environ.get("LOTT_LLM_TIMEOUT", "60"))
 # 默认 75s：加统计部分约 5s 后仍在 Cloudflare 100s 代理超时之内，避免 HTTP 524。
 # 超预算即判定“大模型超时”，Web 预测直接失败提示，不再降级为纯统计。
 LLM_TOTAL_TIMEOUT = float(os.environ.get("LOTT_LLM_TOTAL_TIMEOUT", "75"))
+
+# M4.5：请求级附加参数（合并进每个 chat/completions 请求体）。
+# 背景：部分网关的推理型模型会把 max_tokens 全部耗在 reasoning 上（content 为空），
+# 需要按模型下发 reasoning_effort / enable_thinking 等开关控制思考行为。
+# LOTT_LLM_EXTRA_BODY：JSON 对象，对所有模型生效（如 {"reasoning_effort":"low"}）。
+# LOTT_LLM_EXTRA_BODY_MAP：JSON 对象（模型名 → 参数对象），叠加在默认之上，按模型覆盖。
+LLM_EXTRA_BODY_DEFAULT: Dict = {}
+LLM_EXTRA_BODY_BY_MODEL: Dict[str, Dict] = {}
+
+
+def _load_extra_body_env() -> None:
+    global LLM_EXTRA_BODY_DEFAULT, LLM_EXTRA_BODY_BY_MODEL
+    raw = (os.environ.get("LOTT_LLM_EXTRA_BODY") or "").strip()
+    if raw:
+        try:
+            obj = json.loads(raw)
+            if isinstance(obj, dict):
+                LLM_EXTRA_BODY_DEFAULT = obj
+            else:
+                print("[config] 警告：LOTT_LLM_EXTRA_BODY 必须是 JSON 对象，已忽略")
+        except (json.JSONDecodeError, TypeError) as e:
+            print(f"[config] 警告：LOTT_LLM_EXTRA_BODY 解析失败（{e}），已忽略")
+    raw = (os.environ.get("LOTT_LLM_EXTRA_BODY_MAP") or "").strip()
+    if raw:
+        try:
+            obj = json.loads(raw)
+            if isinstance(obj, dict):
+                cleaned = {str(k): v for k, v in obj.items() if isinstance(v, dict)}
+                bad = len(obj) - len(cleaned)
+                if bad:
+                    print(f"[config] 警告：LOTT_LLM_EXTRA_BODY_MAP 有 {bad} 个非对象值已忽略")
+                LLM_EXTRA_BODY_BY_MODEL = cleaned
+        except (json.JSONDecodeError, TypeError) as e:
+            print(f"[config] 警告：LOTT_LLM_EXTRA_BODY_MAP 解析失败（{e}），已忽略")
+
+
+_load_extra_body_env()
 
 # ---------- M4.2 方法 A/B 开关 ----------
 # 运营筛查阈值：60 期开始提示，连续 120 期无显著差异才允许人工考虑关闭。
