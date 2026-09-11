@@ -160,7 +160,10 @@ server {
 
 - **端口占用/想换端口**：改 `docker-compose.yml` 中 `"18000:18000"`（左侧），或仅改左侧为 `"新端口:18000"` 保持容器内不变；
 - **LLM 未生效/调用失败**：仓库不含任何模型凭据，需先在 `/opt/ssq/` 创建 `.env`（`cp .env.example .env` 后填写你自己的 `LOTT_LLM_BASE_URL` / `LOTT_LLM_API_KEY` / `LOTT_LLM_MODEL`），然后 `docker compose up -d`。确认 VPS 能访问该 API 域名；可临时设 `LOTT_LLM_DISABLED=1` 降级为纯统计模型排查；
-- **多模型**：同一通道多模型用 `LOTT_LLM_MODEL_LIST=模型A,模型B`；完全独立的通道（不同 URL/Key）用 `LOTT_LLM_EXTRA_MODELS=[{...}]`；
+- **多模型**：同一通道多模型用 `LOTT_LLM_MODEL_LIST=模型A,模型B`；完全独立的通道（不同 URL/Key）用 `LOTT_LLM_EXTRA_MODELS=[{...}]`。v0.8.3 起观察轮也会在模型间轮转容错（单模型挂掉不废整个 LLM 通道）；
+- **推理型模型输出为空/总是超时（v0.8.3）**：聚合网关的推理模型（glm/qwen 系 flash 等）会把 max_tokens 全部耗在 reasoning_content 上导致 content 为空。用 `LOTT_LLM_EXTRA_BODY`（全模型默认）与 `LOTT_LLM_EXTRA_BODY_MAP`（按模型覆盖）下发思考控制参数，例如 api.b.ai：
+  `LOTT_LLM_EXTRA_BODY={"reasoning_effort":"low"}` + `LOTT_LLM_EXTRA_BODY_MAP={"qwen3.8-flash":{"enable_thinking":false,"reasoning_effort":"none"}}`；
+- **瞬态 429/5xx（v0.8.3）**：免费共享池常见并发/TPM 限流，chat 内置 2/4/6s 退避重试（最多 3 次，遵守总预算），无需人工干预；
 - **预测很慢/超时**：推理型模型（如 deepseek 系列的 reasoner）单期约 2–4 分钟属正常；换轻量模型（如 minimax-m3）较快；
 - **LLM 不可用/超时 = 预测失败（v0.8.2 起，有意为之）**：Web 端勾选「使用大模型」时，若通道未配置、余额耗尽、限流或超时，`/api/predict` 直接返回 503 与中文原因（前端显示「❌ 预测失败：大模型不可用或超时(...)」），**不再静默降级**为纯统计；取消勾选「使用大模型」即可用纯统计模式。调度器/离线评估仍自动降级，不影响开奖日闭环；
 - **LOTT_LLM_TOTAL_TIMEOUT（默认 75s）**：单次预测 LLM 全阶段（观察+选号+校验）的墙钟预算，超时判定「大模型超时」并快速失败。**若站点在 Cloudflare 等 CDN 后面，该值 + 约 5s 统计开销必须 < CDN 代理超时（CF 为 100s，否则 HTTP 524）**，同时反代 `proxy_read_timeout` 应大于该值；直连部署（无 CDN）可按模型速度调大，如 `LOTT_LLM_TOTAL_TIMEOUT=200`。
