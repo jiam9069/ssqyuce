@@ -200,9 +200,87 @@ td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
 .pat-filters { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; flex-wrap: wrap; }
 .pat-filters select { background: var(--bg2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; font-size: 12px; }
 
+/* ==================== M5 交互升级 ==================== */
+
+/* 命中球高亮（回放/对照） */
+.ball.hit {
+  position: relative;
+  outline: 2px solid var(--gold);
+  box-shadow: 0 0 0 3px rgba(210,153,34,.22), 0 2px 10px rgba(210,153,34,.45);
+}
+.ball.hit::after {
+  content: "✓"; position: absolute; top: -7px; right: -7px;
+  width: 14px; height: 14px; background: var(--gold); color: #1a1a1a;
+  border-radius: 50%; font-size: 9px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+}
+.ball.red.hit { background: linear-gradient(145deg, #ffb199, #f0565b); }
+.ball.blue.hit { background: linear-gradient(145deg, #9ed0ff, #5c9cff); }
+
 /* 回放 */
-.replay-row { display: flex; gap: 16px; flex-wrap: wrap; }
-.replay-col { flex: 1; min-width: 280px; }
+.replay-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+.replay-bar select {
+  background: var(--bg2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 10px; font-size: 12.5px; max-width: 360px;
+}
+.chk { font-size: 12px; color: var(--muted); display: flex; gap: 5px; align-items: center; cursor: pointer; user-select: none; }
+.hint-inline { font-size: 12px; color: var(--muted); }
+.replay-actual {
+  display: flex; align-items: center; gap: 14px; padding: 12px 14px;
+  background: var(--bg2); border: 1px solid var(--gold); border-radius: 10px;
+  margin-bottom: 12px; flex-wrap: wrap;
+}
+.replay-actual .label { color: var(--gold); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.replay-ticket .rk { color: var(--muted); font-size: 12px; min-width: 26px; }
+.replay-ticket .meta b { font-size: 14px; }
+.replay-detail { margin-top: 6px; }
+.replay-detail summary { cursor: pointer; font-size: 12px; color: var(--muted); user-select: none; }
+.replay-detail summary:hover { color: var(--text); }
+.prize-badge {
+  font-size: 11px; padding: 2px 9px; border-radius: 10px; border: 1px solid var(--border);
+  color: var(--muted); white-space: nowrap; font-weight: 600;
+}
+.prize-badge.lv1, .prize-badge.lv2 { color: #ffdf6b; border-color: #ffdf6b; background: rgba(210,153,34,.18); }
+.prize-badge.lv3 { color: var(--gold); border-color: var(--gold); }
+.prize-badge.lv4, .prize-badge.lv5, .prize-badge.lv6 { color: var(--green); border-color: var(--green); }
+.prize-badge.none { color: var(--muted); font-weight: 400; }
+
+/* mini 模式切换（热力图等） */
+.mini-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.mini-tab {
+  padding: 2px 11px; border: 1px solid var(--border); border-radius: 12px;
+  font-size: 11px; color: var(--muted); cursor: pointer; user-select: none; transition: all .15s;
+}
+.mini-tab:hover { color: var(--text); }
+.mini-tab.on { background: var(--blue-soft); border-color: var(--blue); color: var(--blue); font-weight: 600; }
+
+/* 分析区块 */
+.ana-block { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.ana-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; flex-wrap: wrap; }
+.ana-head b { font-size: 12.5px; }
+.ana-sec { margin: 14px 0 6px; font-size: 13px; color: var(--gold); }
+.heat-blue { grid-template-columns: repeat(8, 1fr); }
+.heat .cell.last { outline: 1.5px dashed var(--gold); outline-offset: 1px; }
+.range-sel {
+  background: var(--bg2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 2px 8px; font-size: 12px; margin-left: 8px;
+}
+
+/* 评估子页 */
+.subtabs { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 12px; }
+.subtab {
+  padding: 5px 14px; border: 1px solid var(--border); border-radius: 16px;
+  cursor: pointer; color: var(--muted); font-size: 12.5px; user-select: none; transition: all .15s;
+}
+.subtab:hover { color: var(--text); }
+.subtab.on { background: var(--blue-soft); border-color: var(--blue); color: #fff; }
+.sub-panel.hidden { display: none; }
+.callout {
+  border-left: 3px solid var(--gold); background: var(--bg2);
+  padding: 8px 12px; border-radius: 0 8px 8px 0; margin-top: 10px;
+}
+.ci { font-size: 10.5px; color: var(--muted); }
+td .badge { white-space: nowrap; }
 
 /* 数据管理 */
 .data-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -313,5 +391,6 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
   .nav-btn { flex: 1; text-align: center; font-size: 12px; padding: 8px 6px; }
   .content { padding: 12px; }
   .heat { grid-template-columns: repeat(11, 1fr); }
+  .heat-blue { grid-template-columns: repeat(8, 1fr); }
   .heat .cell { font-size: 9px; }
 }

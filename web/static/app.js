@@ -10,6 +10,40 @@ const toast = (msg, ms = 2600) => {
 };
 const fmt = (x, d = 3) => (x == null ? "-" : Number(x).toFixed(d));
 const pct = (p) => (p ? (p * 100).toFixed(1) + "%" : "-");
+const pad2 = (n) => String(n).padStart(2, "0");
+// 奖级名称与奖金（与后端 evaluate.PRIZE_NAME / PRIZE_CASH 一致，回放本地对照用）
+const PRIZE_NAME = {1:"一等奖",2:"二等奖",3:"三等奖",4:"四等奖",5:"五等奖",6:"六等奖"};
+const PRIZE_CASH = {1:6500000,2:180000,3:3000,4:200,5:10,6:5};
+const PRIMES_33 = new Set([2,3,5,7,11,13,17,19,23,29,31]);
+function localPrizeLevel(r, b) {
+  if (r === 6 && b) return 1;
+  if (r === 6) return 2;
+  if (r === 5 && b) return 3;
+  if (r === 5 || (r === 4 && b)) return 4;
+  if (r === 4 || (r === 3 && b)) return 5;
+  if (b) return 6;
+  return 0;
+}
+function acValue(reds) {
+  const rs = [...reds].sort((a, b) => a - b);
+  const diffs = new Set();
+  for (let i = 0; i < rs.length; i++) for (let j = i + 1; j < rs.length; j++) diffs.add(rs[j] - rs[i]);
+  return diffs.size - (rs.length - 1);
+}
+function comb(n, k) {
+  if (k < 0 || k > n) return 0;
+  let r = 1;
+  for (let i = 0; i < k; i++) r = r * (n - i) / (i + 1);
+  return Math.round(r);
+}
+// 超几何分布：33 个号码中 K 个属于目标类，抽 6 个命中 k 个的概率
+function hyperPMF(K, k) { return comb(K, k) * comb(33 - K, 6 - k) / comb(33, 6); }
+function percentile(arr, p) {
+  const a = [...arr].sort((x, y) => x - y);
+  const idx = (a.length - 1) * p / 100;
+  const lo = Math.floor(idx), hi = Math.ceil(idx);
+  return a[lo] + (a[hi] - a[lo]) * (idx - lo);
+}
 let win = "long";
 let charts = {};
 let allPatterns = [];
@@ -90,21 +124,37 @@ function switchTab(name) {
   $$(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
   $$(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + name));
   if (name === "settings") { loadLlmConfig(); loadMethodsConfig(); }
-  if (name === "analysis" && allFeatures) renderWindow(allFeatures);
+  if (name === "analysis") {
+    if (allFeatures) renderWindow(allFeatures);
+    ensureDrawHistory();
+  }
   if (name === "patterns" && allPatterns.length) renderPatterns(allPatterns, _summary(allPatterns));
   if (name === "replay") populateReplaySelect();
 }
+
+let replayData = null;
 
 function populateReplaySelect() {
   const sel = $("#replaySelect");
   if (!sel) return;
   const val = sel.value;
   api("/api/predictions/history?limit=50").then(data => {
+    replayData = data;
     sel.innerHTML = "<option value=''>-- 选择期号 --</option>";
     data.forEach(item => {
       const opt = document.createElement("option");
       opt.value = item.issue;
-      opt.textContent = item.issue + (item.date ? " (" + item.date + ")" : "");
+      let label = item.issue + (item.date ? " · " + item.date : "");
+      if (item.actual && item.result) {
+        const reds = item.result.red_hits || [];
+        const maxRed = reds.length ? Math.max(...reds) : 0;
+        const blueAny = (item.result.blue_hits || []).some(Boolean);
+        label += " · 红中" + maxRed + (blueAny ? "+蓝✓" : "");
+        if (item.result.best_level >= 1) label += " · " + (PRIZE_NAME[item.result.best_level] || "");
+      } else {
+        label += " · 待开奖";
+      }
+      opt.textContent = label;
       sel.appendChild(opt);
     });
     if (val) sel.value = val;
@@ -113,40 +163,74 @@ function populateReplaySelect() {
 
 function loadReplay() {
   const issue = $("#replaySelect")?.value;
-  if (!issue) { $("#replayResult").innerHTML = ""; return; }
-  api("/api/predictions/history?limit=200").then(data => {
-    const item = data.find(d => d.issue === issue);
-    if (!item) return;
-    const act = item.actual;
-    const preds = item.predictions || [];
-    const res = item.result || {};
-    const names = ["","一","二","三","四","五","六"];
-    $("#replayResult").innerHTML =
-      '<div class="replay-row">' +
-        '<div class="replay-col">' +
-          '<div class="note">实际开奖</div>' +
-          '<div class="balls" style="font-size:18px">' +
-            act.reds.map(r => "<span class='ball red'>" + String(r).padStart(2,"0") + "</span>").join("") +
-            " <span class='ball blue'>" + String(act.blue).padStart(2,"0") + "</span>" +
-          "</div>" +
-        "</div>" +
-        '<div class="replay-col">' +
-          '<div class="note">系统预测 (命中)</div>' +
-          preds.map((t,i) => {
-            const rh = res.red_hits?.[i] ?? "-";
-            const bh = res.blue_hits?.[i] ?? "-";
-            const lvl = res.levels?.[i] ?? 0;
-            return '<div class="ticket small">' +
-              '<div class="balls">' +
-                t.reds.map(r => "<span class='ball red sm'>" + String(r).padStart(2,"0") + "</span>").join("") +
-                " <span class='ball blue sm'>" + String(t.blue).padStart(2,"0") + "</span>" +
-              "</div>" +
-              '<span class="meta">红命中' + rh + " 蓝" + (bh ? "✓" : "—") + " → " + (names[lvl] || "-") + "</span>" +
-            "</div>";
-          }).join("") +
-        "</div>" +
-      "</div>";
-  }).catch(e => toast("加载失败: " + e.message));
+  const box = $("#replayResult");
+  if (!box) return;
+  if (!issue) { box.innerHTML = ""; return; }
+  const item = (replayData || []).find(d => d.issue === issue);
+  if (!item) { box.innerHTML = '<div class="note">未找到该期预测记录。</div>'; return; }
+  if (!item.actual) { box.innerHTML = '<div class="note">该期尚未开奖，开奖后可对照。</div>'; return; }
+  renderReplayItem(item);
+}
+
+function renderReplayItem(item) {
+  const act = item.actual;
+  // 本地逐注对照：命中球金框高亮，不依赖后端 result 字段
+  const rows = (item.predictions || []).map(t => {
+    const rh = t.reds.filter(r => act.reds.includes(r)).length;
+    const bh = t.blue === act.blue ? 1 : 0;
+    const lvl = localPrizeLevel(rh, bh);
+    return { t, rh, bh, lvl, reward: PRIZE_CASH[lvl] || 0 };
+  });
+  const sortByHit = $("#replaySort")?.checked;
+  const view = sortByHit
+    ? rows.slice().sort((a, b) => (b.rh * 2 + b.bh) - (a.rh * 2 + a.bh))
+    : rows;
+  const nT = rows.length;
+  const meanRed = nT ? rows.reduce((a, r) => a + r.rh, 0) / nT : 0;
+  const nBlue = rows.filter(r => r.bh).length;
+  const bestLvl = nT ? Math.max(...rows.map(r => r.lvl)) : 0;
+  const winCount = rows.filter(r => r.lvl > 0).length;
+  const totalReward = rows.reduce((a, r) => a + r.reward, 0);
+
+  const actualBalls =
+    act.reds.map(r => "<span class='ball red'>" + pad2(r) + "</span>").join("") +
+    " <span class='ball blue' style='margin-left:8px'>" + pad2(act.blue) + "</span>";
+
+  const tickets = view.map((r, i) => {
+    const balls = r.t.reds.map(n =>
+      "<span class='ball red sm" + (act.reds.includes(n) ? " hit" : "") + "' onclick='showNumDetail(" + n + ")'>" + pad2(n) + "</span>").join("");
+    const blue = "<span class='ball blue sm" + (r.bh ? " hit" : "") + "' onclick='showNumDetailBlue(" + r.t.blue + ")'>" + pad2(r.t.blue) + "</span>";
+    const badge = r.lvl
+      ? "<span class='prize-badge lv" + r.lvl + "'>" + (PRIZE_NAME[r.lvl] || "") + " ¥" + r.reward + "</span>"
+      : "<span class='prize-badge none'>未中奖</span>";
+    const redCls = r.rh >= 4 ? "var(--gold)" : r.rh >= 2 ? "var(--green)" : "var(--muted)";
+    const method = r.t.method ? "<span class='badge'>" + escHtml(r.t.method) + "</span>" : "";
+    const detail = r.t.reasoning
+      ? "<details class='replay-detail'><summary>推理理由</summary><div class='reasoning'>" + escHtml(r.t.reasoning) + "</div></details>"
+      : "";
+    return '<div class="ticket small replay-ticket">' +
+      '<div class="row1">' +
+        "<span class='rk'>#" + (i + 1) + "</span>" +
+        '<div class="balls">' + balls + " " + blue + "</div>" +
+        method +
+        '<span class="meta">红中 <b style="color:' + redCls + '">' + r.rh + '</b>/6 · 蓝 ' + (r.bh ? "<b style='color:var(--gold)'>✓</b>" : "—") + "</span>" +
+        badge +
+      "</div>" + detail + "</div>";
+  }).join("");
+
+  $("#replayResult").innerHTML =
+    '<div class="replay-actual">' +
+      '<span class="label">实际开奖</span>' +
+      '<div class="balls" style="font-size:18px">' + actualBalls + "</div>" +
+    "</div>" +
+    '<div class="metrics">' +
+      metricItem("最好奖级", bestLvl ? PRIZE_NAME[bestLvl] : "未中奖") +
+      metricItem("平均红球命中", fmt(meanRed, 2), nT + " 注") +
+      metricItem("蓝球命中", nBlue + " / " + nT + " 注") +
+      metricItem("中奖注数", winCount + " / " + nT) +
+      metricItem("总奖金", "¥" + totalReward.toLocaleString(), "投入 ¥" + (nT * 2)) +
+    "</div>" +
+    (nT ? '<div class="replay-list">' + tickets + "</div>" : '<div class="note">该期无预测记录。</div>');
 }
 
 // ==================== 预测 ====================
@@ -340,18 +424,20 @@ function showNumDetail(num) {
   const meanFreq = red.freq ? red.freq.reduce((a,b) => a+b, 0) / 33 : 0;
   const hotCold = freq > meanFreq * 1.2 ? "<span style='color:var(--red)'>热</span>" :
                   freq < meanFreq * 0.8 ? "<span style='color:var(--blue)'>冷</span>" : "<span style='color:var(--muted)'>温</span>";
-  $("#numModalTitle").textContent = "号码 " + String(num).padStart(2,"0") + " 统计";
+  $("#numModalTitle").textContent = "红球 " + pad2(num) + " 统计";
   $("#numModalBody").innerHTML =
     '<div class="metrics">' +
       metricItem("出现次数", (freq).toString() + " 次") +
       metricItem("频率", (freq / (w.n_draws || 1)).toFixed(4)) +
       metricItem("当前遗漏", omCur.toString() + " 期") +
       metricItem("平均遗漏", omAvg.toFixed(1) + " 期") +
+      metricItem("遗漏比", omAvg > 0 ? (omCur / omAvg).toFixed(2) : "-") +
       metricItem("热冷", hotCold) +
       metricItem("模型概率", prob) +
     '</div>' +
-    '<div class="note">窗口: ' + win + ' | 最新: ' + allFeatures.issue + "</div>";
+    '<div class="note">窗口: ' + (WIN_LABEL[win] || win) + ' | 最新: ' + allFeatures.issue + "</div>";
   $("#numModal").style.display = "flex";
+  renderNumTrendChart(num, false);
 }
 
 function showNumDetailBlue(num) {
@@ -360,17 +446,58 @@ function showNumDetailBlue(num) {
   const blue = w.blue;
   const freq = blue.freq ? (blue.freq[num-1] ?? 0) : 0;
   const omCur = blue.omission_current ? (blue.omission_current[num-1] ?? 0) : 0;
+  const omAvg = blue.omission_avg ? (blue.omission_avg[num-1] ?? 0) : 0;
   const probArr = window._currentProbs?.blue_probs || [];
   const prob = (probArr[num-1] ?? 0).toFixed(4);
-  $("#numModalTitle").textContent = "蓝球 " + String(num).padStart(2,"0") + " 统计";
+  $("#numModalTitle").textContent = "蓝球 " + pad2(num) + " 统计";
   $("#numModalBody").innerHTML =
     '<div class="metrics">' +
       metricItem("出现次数", freq.toString() + " 次") +
       metricItem("当前遗漏", omCur.toString() + " 期") +
+      metricItem("平均遗漏", omAvg.toFixed(1) + " 期") +
       metricItem("重号率", pct(blue.repeat_rate)) +
       metricItem("模型概率", prob) +
-    '</div>';
+    '</div>' +
+    '<div class="note">窗口: ' + (WIN_LABEL[win] || win) + ' | 最新: ' + allFeatures.issue + "</div>";
   $("#numModal").style.display = "flex";
+  renderNumTrendChart(num, true);
+}
+
+// 号码近 100 期出现轨迹（散点点位 + 号码位置虚线）
+function renderNumTrendChart(num, isBlue) {
+  const doRender = (issues, arr) => {
+    const ch = echartsInit("chNumTrend");
+    if (!ch) return;
+    const N = Math.min(100, issues.length);
+    const iss = issues.slice(-N);
+    const pts = [];
+    iss.forEach((_, i) => {
+      const v = arr[i];
+      if (isBlue ? v === num : (v || []).includes(num)) pts.push([i, num]);
+    });
+    const yMin = isBlue ? 1 : Math.max(1, num - 5);
+    const yMax = isBlue ? 16 : Math.min(33, num + 5);
+    ch.setOption({
+      backgroundColor:"transparent", grid:{left:34, right:10, top:16, bottom:22},
+      xAxis:{type:"category", data:iss, axisLabel:{color:"#8b949e", interval: Math.max(0, Math.floor(N / 6) - 1), fontSize:10}},
+      yAxis:{type:"value", min:yMin, max:yMax, splitLine:{lineStyle:{color:"#2d333b"}}, axisLabel:{color:"#8b949e"}},
+      series:[{
+        type:"scatter", data:pts, symbolSize:9,
+        itemStyle:{color: isBlue ? "#3b82f6" : "#e5484d"},
+        markLine:{silent:true, symbol:"none", lineStyle:{type:"dashed", color:"#8b949e"},
+          label:{show:false}, data:[{yAxis: num}]},
+        tooltip:{formatter: p => iss[p.value[0]] + " 开出 " + pad2(num)},
+      }],
+      tooltip:{trigger:"item"},
+    });
+  };
+  if (drawHist && drawHist.issues && drawHist.issues.length) {
+    doRender(drawHist.issues, isBlue ? drawHist.blues : drawHist.reds);
+  } else {
+    api("/api/draws/history?n=100").then(h => {
+      if (h && h.issues) doRender(h.issues, isBlue ? h.blues : h.reds);
+    }).catch(() => {});
+  }
 }
 
 function closeNumModal(e) {
@@ -380,11 +507,30 @@ function closeNumModal(e) {
 
 // ==================== 数据分析 ====================
 
+let heatMode = "freq";    // 红球热力模式: freq | omit | ratio
+let bHeatMode = "freq";   // 蓝球面板模式: freq | omit
+let drawHist = null;      // /api/draws/history 缓存（走势 / 分布 / 号码轨迹）
+let drawHistN = 0;
+
+const WIN_LABEL = {long: "长期 · 全量", mid: "中期 · 近150期", short: "短期 · 近30期"};
+
 function setWin(name) {
   win = name;
   $$(".tab-panel .tabs .tab").forEach(el => el.classList.toggle("on", el.dataset.w === name));
   const feat = allFeatures;
   if (feat) renderWindow(feat);
+}
+
+function setHeatMode(m) {
+  heatMode = m;
+  $$("#heatModeTabs .mini-tab").forEach(el => el.classList.toggle("on", el.dataset.m === m));
+  if (allFeatures) renderHeatMode(allFeatures);
+}
+
+function setBHeatMode(m) {
+  bHeatMode = m;
+  $$("#bHeatModeTabs .mini-tab").forEach(el => el.classList.toggle("on", el.dataset.m === m));
+  if (allFeatures) renderBlueHeat(allFeatures);
 }
 
 function renderStats(feat) {
@@ -396,90 +542,376 @@ function renderStats(feat) {
 }
 
 function renderWindow(feat) {
-  const w = feat.windows[win];
-  renderHeat(feat, w.red.freq);
-  renderOmit(w.red.omission_current);
-  renderSumChart(feat.recent);
-  renderZoneChart(feat.recent);
+  const w = feat.windows[win] || feat.windows.long;
+  const tag = $("#anaWinTag");
+  if (tag) tag.textContent = WIN_LABEL[win] || win;
+  renderAnaOverview(w);
+  renderHeatMode(feat);
+  renderBlueHeat(feat);
+  renderBlueTrend();
+  renderOmitScatter(w.red);
+  renderOmitBins(w.red.omit_bins);
 }
 
-function heatColor(v, max) {
-  const t = Math.max(0, Math.min(1, v / max));
-  const r = Math.round(20 + t * 205), g = Math.round(24 + t * 40), b = Math.round(40 + t * 60);
-  return "rgb(" + r + "," + g + "," + b + ")";
+function renderAnaOverview(w) {
+  const r = w.red || {}, b = w.blue || {};
+  const p5 = r.sum_pct ? (r.sum_pct["5"] ?? r.sum_pct[5]) : null;
+  const p95 = r.sum_pct ? (r.sum_pct["95"] ?? r.sum_pct[95]) : null;
+  const items = [
+    metricItem("样本期数", r.n_draws ?? "-"),
+    metricItem("和值均值", fmt(r.sum_mean, 1), "σ " + fmt(r.sum_std, 1)),
+    (p5 != null && p95 != null) ? metricItem("和值90%区间", p5.toFixed(0) + " ~ " + p95.toFixed(0)) : "",
+    metricItem("奇偶比(均值)", fmt(r.odd_mean, 1) + " : " + fmt(6 - (r.odd_mean || 0), 1)),
+    metricItem("跨度均值", fmt(r.span_mean, 1)),
+    metricItem("AC值均值", fmt(r.ac_mean, 1)),
+    metricItem("连号出现率", pct(r.consecutive_rate)),
+    metricItem("同尾出现率", pct(r.same_tail_rate)),
+    metricItem("重号均值", fmt(r.repeat_mean, 2)),
+    metricItem("热号 TOP6", (r.hot_top6 || []).map(pad2).join(" ")),
+    metricItem("冷号 TOP6", (r.cold_top6 || []).map(pad2).join(" ")),
+    metricItem("蓝球热号", (b.hot_top3 || []).map(pad2).join(" ")),
+    metricItem("蓝球大遗漏", (b.omit_top3 || []).map(pad2).join(" ")),
+  ];
+  $("#anaOverview").innerHTML = items.join("");
 }
 
-function renderHeat(feat, freq) {
-  const max = Math.max(...freq);
-  const mean = freq.reduce((a, x) => a + x, 0) / 33;
-  const cells = freq.map((v, i) => {
+// 热力配色：t ∈ [0,1]，热=红 / 冷=蓝
+function heatColorFreq(t) {
+  t = Math.max(0, Math.min(1, t));
+  return "rgb(" + Math.round(20 + t * 205) + "," + Math.round(24 + t * 40) + "," + Math.round(40 + t * 60) + ")";
+}
+function heatColorCold(t) {
+  t = Math.max(0, Math.min(1, t));
+  return "rgb(" + Math.round(18 + t * 40) + "," + Math.round(24 + t * 96) + "," + Math.round(46 + t * 209) + ")";
+}
+function swatchLegend(labels, colors) {
+  return labels.map((l, i) => '<span class="sw" style="background:' + colors[i] + '"></span>' + l).join(" ");
+}
+
+function renderHeatMode(feat) {
+  const w = feat.windows[win] || feat.windows.long;
+  const red = w.red || {};
+  const freq = red.freq || [], omCur = red.omission_current || [], omAvg = red.omission_avg || [];
+  let values, colorFn, tipFn, legendHtml;
+  if (heatMode === "freq") {
+    const max = Math.max(...freq, 1);
+    const mean = freq.reduce((a, x) => a + x, 0) / 33;
+    values = freq;
+    colorFn = v => heatColorFreq(v / max);
+    tipFn = i => pad2(i + 1) + "：出现 " + freq[i] + " 次（33 球平均 " + mean.toFixed(1) + "）" +
+      (freq[i] > mean * 1.15 ? " · 热" : freq[i] < mean * 0.85 ? " · 冷" : "");
+    legendHtml = swatchLegend(["冷", "中", "热"], [colorFn(0), heatColorFreq(0.5), colorFn(max)]);
+  } else if (heatMode === "omit") {
+    const max = Math.max(...omCur, 1);
+    values = omCur;
+    colorFn = v => heatColorCold(v / max);
+    tipFn = i => pad2(i + 1) + "：当前遗漏 " + omCur[i].toFixed(0) + " 期 / 平均 " + (omAvg[i] || 0).toFixed(1) + " 期";
+    legendHtml = swatchLegend(["低遗漏", "中", "高遗漏"], [colorFn(0), heatColorCold(0.5), colorFn(max)]);
+  } else {
+    values = omCur.map((v, i) => (omAvg[i] > 0 ? v / omAvg[i] : 0));
+    colorFn = v => v >= 1
+      ? heatColorCold(Math.min(1, (v - 1) / 1.0))
+      : heatColorFreq(Math.min(1, (1 - v) / 0.6));
+    tipFn = i => pad2(i + 1) + "：遗漏比 " + values[i].toFixed(2) +
+      "（当前 " + omCur[i].toFixed(0) + " / 平均 " + (omAvg[i] || 0).toFixed(1) + "）";
+    legendHtml = swatchLegend(["偏热 <0.6", "正常 ≈1", "偏冷 >1.5"], [heatColorFreq(1), "rgb(35,40,48)", heatColorCold(1)]);
+  }
+  const lastReds = feat.last_reds || [];
+  $("#heatFreq").innerHTML = values.map((v, i) => {
     const num = i + 1;
-    const isBlue = num === feat.last_blue;
-    const cls = isBlue ? "cell b" : "cell";
-    const title = num + ": " + v + "次" + (v > mean * 1.15 ? " 热" : v < mean * 0.85 ? " 冷" : "");
-    return '<div class="' + cls + '" style="background:' + (isBlue ? "" : heatColor(v, max)) + '" title="' + title + '" onclick="showNumDetail(' + num + ')">' + String(num).padStart(2,"0") + "</div>";
+    const cls = "cell" + (lastReds.includes(num) ? " last" : "");
+    return '<div class="' + cls + '" style="background:' + colorFn(v) + '" title="' + escHtml(tipFn(i)) + '" onclick="showNumDetail(' + num + ')">' + pad2(num) + "</div>";
   }).join("");
-  $("#heatFreq").innerHTML = cells;
-  $("#heatLegend").innerHTML =
-    '<span class="sw" style="background:' + heatColor(0, max) + '"></span>冷 ' +
-    '<span class="sw" style="background:' + heatColor(max*0.5, max) + '"></span>中 ' +
-    '<span class="sw" style="background:' + heatColor(max, max) + '"></span>热';
+  $("#heatLegend").innerHTML = legendHtml;
 }
 
-function renderOmit(om) {
-  const top = om.map((v, i) => [i+1, v]).sort((a, b) => b[1] - a[1]).slice(0, 10);
-  const ch = echartsInit("chOmit");
+function renderBlueHeat(feat) {
+  const w = feat.windows[win] || feat.windows.long;
+  const blue = w.blue || {};
+  const freq = blue.freq || [], omCur = blue.omission_current || [], omAvg = blue.omission_avg || [];
+  let values, colorFn, tipFn, legend;
+  if (bHeatMode === "freq") {
+    const max = Math.max(...freq, 1);
+    values = freq;
+    colorFn = v => heatColorFreq(v / max);
+    tipFn = i => pad2(i + 1) + "：出现 " + freq[i] + " 次";
+    legend = swatchLegend(["冷", "热"], [colorFn(0), colorFn(max)]);
+  } else {
+    const max = Math.max(...omCur, 1);
+    values = omCur;
+    colorFn = v => heatColorCold(v / max);
+    tipFn = i => pad2(i + 1) + "：遗漏 " + omCur[i].toFixed(0) + " 期 / 平均 " + (omAvg[i] || 0).toFixed(1) + " 期";
+    legend = swatchLegend(["低", "高"], [colorFn(0), colorFn(max)]);
+  }
+  $("#heatBlue").innerHTML = values.map((v, i) => {
+    const num = i + 1;
+    const cls = "cell" + (num === feat.last_blue ? " last" : "");
+    return '<div class="' + cls + '" style="background:' + colorFn(v) + '" title="' + escHtml(tipFn(i)) + '" onclick="showNumDetailBlue(' + num + ')">' + pad2(num) + "</div>";
+  }).join("");
+  $("#bHeatLegend").innerHTML = legend;
+}
+
+function renderBlueTrend() {
+  const ch = echartsInit("chBlueTrend");
   if (!ch) return;
+  let issues = null, blues = null;
+  if (drawHist && drawHist.blues && drawHist.blues.length) {
+    issues = drawHist.issues.slice(-30);
+    blues = drawHist.blues.slice(-30);
+  } else if (allFeatures && allFeatures.recent && allFeatures.recent.length) {
+    issues = allFeatures.recent.map(r => r.issue);
+    blues = allFeatures.recent.map(r => r.blue);
+  } else return;
+  const mean = blues.reduce((a, b) => a + b, 0) / blues.length;
   ch.setOption({
-    backgroundColor: "transparent", grid: {left:36, right:8, top:8, bottom:22},
-    xAxis: {type:"category", data: top.map(x=>x[0]), axisLabel:{color:"#8b949e"}},
-    yAxis: {type:"value", splitLine:{lineStyle:{color:"#2d333b"}}, axisLabel:{color:"#8b949e"}},
+    backgroundColor: "transparent", grid: {left:30, right:10, top:14, bottom:20},
+    xAxis: {type:"category", data:issues, axisLabel:{color:"#8b949e", interval: Math.max(0, Math.floor(issues.length / 6) - 1), fontSize:10}},
+    yAxis: {type:"value", min:1, max:16, interval:3, splitLine:{lineStyle:{color:"#2d333b"}}, axisLabel:{color:"#8b949e"}},
     series: [{
-      type:"bar", data: top.map(x=>x[1]),
-      itemStyle:{color:"#e5484d", borderRadius:[3,3,0,0]},
-      label:{show:true, position:"top", color:"#e6edf3", fontSize:10},
+      type:"line", data:blues, symbol:"circle", symbolSize:7,
+      lineStyle:{width:1.5, color:"#3b82f6"}, itemStyle:{color:"#3b82f6"},
+      areaStyle:{color:"rgba(59,130,246,.08)"},
+      markLine:{silent:true, symbol:"none", lineStyle:{type:"dashed", color:"#d29922"},
+        label:{color:"#8b949e", formatter:"均值 " + mean.toFixed(1)}, data:[{yAxis: mean}]},
     }],
     tooltip: {trigger:"axis"},
   });
 }
 
-function renderSumChart(recent) {
-  const ch = echartsInit("chSum");
+function renderOmitScatter(red) {
+  const ch = echartsInit("chOmitScatter");
   if (!ch) return;
-  const issues = recent.map(r => r.issue.slice(4));
-  const sums = recent.map(r => r.sum);
-  const mean = sums.reduce((a,b)=>a+b,0) / sums.length;
+  const omCur = red.omission_current || [], omAvg = red.omission_avg || [];
+  const data = omCur.map((v, i) => {
+    const ratio = omAvg[i] > 0 ? v / omAvg[i] : 0;
+    const color = ratio >= 1.5 ? "#58a6ff" : ratio <= 0.5 ? "#f85149" : "#8b949e";
+    return {value: [ +(omAvg[i] || 0).toFixed(1), v ], name: pad2(i + 1), itemStyle: {color}};
+  });
+  const maxV = Math.ceil(Math.max(...omCur, ...omAvg, 5)) + 1;
   ch.setOption({
-    backgroundColor:"transparent", grid:{left:40,right:8,top:20,bottom:22},
-    xAxis:{type:"category", data:issues, axisLabel:{color:"#8b949e", interval:9}},
-    yAxis:{type:"value", splitLine:{lineStyle:{color:"#2d333b"}}, axisLabel:{color:"#8b949e"}},
+    backgroundColor:"transparent", grid:{left:38, right:14, top:20, bottom:32},
+    xAxis:{type:"value", name:"平均遗漏", nameTextStyle:{color:"#8b949e"}, splitLine:{lineStyle:{color:"#2d333b"}}, axisLabel:{color:"#8b949e"}},
+    yAxis:{type:"value", name:"当前遗漏", nameTextStyle:{color:"#8b949e"}, splitLine:{lineStyle:{color:"#2d333b"}}, axisLabel:{color:"#8b949e"}},
     series:[
-      {name:"和值", type:"line", showSymbol:false, data:sums, lineStyle:{width:2,color:"#3b82f6"}, areaStyle:{color:"rgba(59,130,246,.15)"}},
-      {name:"均值", type:"line", showSymbol:false, data:sums.map(()=>mean), lineStyle:{type:"dashed",color:"#d29922"}},
+      {type:"line", data:[[0,0],[maxV, maxV]], symbol:"none", silent:true,
+       lineStyle:{type:"dashed", color:"#d29922", width:1}, tooltip:{show:false}},
+      {type:"scatter", data, symbolSize:9,
+       label:{show:true, fontSize:9, color:"#8b949e", position:"top",
+         formatter: p => { const r = p.value[0] > 0 ? p.value[1] / p.value[0] : 0; return (r >= 1.5 || r <= 0.5) ? p.name : ""; }},
+       tooltip:{formatter: p => p.name + "：当前遗漏 " + p.value[1] + " / 平均 " + p.value[0]}},
     ],
+    tooltip:{trigger:"item"},
+  });
+}
+
+function renderOmitBins(bins) {
+  const ch = echartsInit("chOmitBins");
+  if (!ch) return;
+  const keys = ["0-5", "6-10", "11-15", "16-20", "21+"];
+  const data = keys.map(k => (bins && bins[k]) || 0);
+  ch.setOption({
+    backgroundColor:"transparent", grid:{left:34, right:10, top:16, bottom:26},
+    xAxis:{type:"category", data:keys.map(k => k + " 期"), axisLabel:{color:"#8b949e"}},
+    yAxis:{type:"value", name:"号码数", nameTextStyle:{color:"#8b949e"}, splitLine:{lineStyle:{color:"#2d333b"}}, axisLabel:{color:"#8b949e"}},
+    series:[{type:"bar", data, itemStyle:{color:"#58a6ff", borderRadius:[3,3,0,0]},
+      label:{show:true, position:"top", color:"#e6edf3", fontSize:11}}],
     tooltip:{trigger:"axis"},
   });
 }
 
-function renderZoneChart(recent) {
-  const ch = echartsInit("chZone");
-  if (!ch) return;
-  const z1=[],z2=[],z3=[];
-  recent.forEach(r => {
-    const a=r.reds.filter(x=>x<=11).length, b=r.reds.filter(x=>x>=12&&x<=22).length;
-    z1.push(a); z2.push(b); z3.push(6-a-b);
+// ---------- 走势 + 分布（基于 /api/draws/history，客户端计算） ----------
+
+function onTrendRangeChange() { ensureDrawHistory(true); }
+
+function ensureDrawHistory(force) {
+  const n = parseInt($("#trendRange")?.value || "300", 10);
+  if (drawHist && drawHistN === n && !force) { renderTrendCharts(); renderDistCharts(); return; }
+  api("/api/draws/history?n=" + n).then(h => {
+    if (!h || !h.issues || !h.issues.length) return;
+    drawHist = h; drawHistN = n;
+    renderTrendCharts();
+    renderDistCharts();
+    renderBlueTrend();
+  }).catch(e => toast("历史数据加载失败: " + e.message));
+}
+
+function renderTrendCharts() {
+  if (!drawHist || !drawHist.issues) return;
+  const N = drawHist.issues.length;
+  const labels = drawHist.issues.map(s => s.slice(4));
+  const step = Math.max(1, Math.floor(N / 10));
+  const axisCommon = {color:"#8b949e", interval: step - 1};
+
+  // 和值走势：均值 / ±1σ / 90% 分位
+  const sums = drawHist.sums;
+  const mean = sums.reduce((a, b) => a + b, 0) / sums.length;
+  const std = Math.sqrt(sums.reduce((a, b) => a + (b - mean) ** 2, 0) / sums.length);
+  const p5 = percentile(sums, 5), p95 = percentile(sums, 95);
+  let ch = echartsInit("chSum");
+  if (ch) ch.setOption({
+    backgroundColor:"transparent", grid:{left:40, right:12, top:20, bottom:24},
+    xAxis:{type:"category", data:labels, axisLabel:axisCommon},
+    yAxis:{type:"value", scale:true, splitLine:{lineStyle:{color:"#2d333b"}}, axisLabel:{color:"#8b949e"}},
+    series:[{
+      name:"和值", type:"line", showSymbol:false, data:sums,
+      lineStyle:{width:1.6, color:"#3b82f6"}, areaStyle:{color:"rgba(59,130,246,.10)"},
+      markLine:{silent:true, symbol:"none", data:[
+        {yAxis: mean, lineStyle:{type:"dashed", color:"#d29922"}, label:{color:"#d29922", formatter:"均值 " + mean.toFixed(0)}},
+        {yAxis: mean + std, lineStyle:{type:"dotted", color:"#8b949e"}, label:{show:false}},
+        {yAxis: mean - std, lineStyle:{type:"dotted", color:"#8b949e"}, label:{show:false}},
+        {yAxis: p95, lineStyle:{type:"dotted", color:"#e5484d"}, label:{color:"#e5484d", formatter:"P95 " + p95.toFixed(0), position:"insideEndTop"}},
+        {yAxis: p5, lineStyle:{type:"dotted", color:"#e5484d"}, label:{color:"#e5484d", formatter:"P5 " + p5.toFixed(0), position:"insideEndBottom"}},
+      ]},
+    }],
+    tooltip:{trigger:"axis"},
   });
-  ch.setOption({
-    backgroundColor:"transparent", grid:{left:40,right:8,top:20,bottom:22},
-    xAxis:{type:"category", data:recent.map((_,i)=>i), axisLabel:{show:false}},
-    yAxis:{type:"value",max:6,splitLine:{lineStyle:{color:"#2d333b"}}, axisLabel:{color:"#8b949e"}},
+
+  // 三区比堆积
+  const z1 = [], z2 = [], z3 = [];
+  drawHist.reds.forEach(r => {
+    const a = r.filter(x => x <= 11).length, b = r.filter(x => x >= 12 && x <= 22).length;
+    z1.push(a); z2.push(b); z3.push(6 - a - b);
+  });
+  ch = echartsInit("chZone");
+  if (ch) ch.setOption({
+    backgroundColor:"transparent", grid:{left:40, right:10, top:24, bottom:24},
+    xAxis:{type:"category", data:labels, axisLabel:{show:false}},
+    yAxis:{type:"value", max:6, splitLine:{lineStyle:{color:"#2d333b"}}, axisLabel:{color:"#8b949e"}},
     series:[
-      {name:"一区1-11",type:"bar",stack:"z",data:z1,itemStyle:{color:"#e5484d"}},
-      {name:"二区12-22",type:"bar",stack:"z",data:z2,itemStyle:{color:"#3b82f6"}},
-      {name:"三区23-33",type:"bar",stack:"z",data:z3,itemStyle:{color:"#3fb950"}},
+      {name:"一区 1-11", type:"bar", stack:"z", data:z1, itemStyle:{color:"#e5484d"}, barCategoryGap:"20%"},
+      {name:"二区 12-22", type:"bar", stack:"z", data:z2, itemStyle:{color:"#3b82f6"}},
+      {name:"三区 23-33", type:"bar", stack:"z", data:z3, itemStyle:{color:"#3fb950"}},
     ],
-    tooltip:{trigger:"axis"}, legend:{textStyle:{color:"#8b949e"},top:0},
+    tooltip:{trigger:"axis"}, legend:{textStyle:{color:"#8b949e"}, top:0, itemWidth:12, itemHeight:8},
   });
+
+  // 跨度走势
+  const spans = drawHist.reds.map(r => Math.max(...r) - Math.min(...r));
+  const spanMean = spans.reduce((a, b) => a + b, 0) / spans.length;
+  ch = echartsInit("chSpan");
+  if (ch) ch.setOption({
+    backgroundColor:"transparent", grid:{left:36, right:12, top:20, bottom:24},
+    xAxis:{type:"category", data:labels, axisLabel:axisCommon},
+    yAxis:{type:"value", min:0, max:32, splitLine:{lineStyle:{color:"#2d333b"}}, axisLabel:{color:"#8b949e"}},
+    series:[{
+      name:"跨度", type:"line", showSymbol:false, data:spans,
+      lineStyle:{width:1.4, color:"#a371f7"},
+      markLine:{silent:true, symbol:"none", data:[
+        {yAxis: spanMean, lineStyle:{type:"dashed", color:"#d29922"}, label:{color:"#d29922", formatter:"均值 " + spanMean.toFixed(1)}}]},
+    }],
+    tooltip:{trigger:"axis"},
+  });
+
+  // 奇数个数走势
+  const odds = drawHist.reds.map(r => r.filter(x => x % 2 === 1).length);
+  const oddMean = odds.reduce((a, b) => a + b, 0) / odds.length;
+  ch = echartsInit("chOdd");
+  if (ch) ch.setOption({
+    backgroundColor:"transparent", grid:{left:36, right:12, top:20, bottom:24},
+    xAxis:{type:"category", data:labels, axisLabel:axisCommon},
+    yAxis:{type:"value", min:0, max:6, interval:1, splitLine:{lineStyle:{color:"#2d333b"}}, axisLabel:{color:"#8b949e"}},
+    series:[{
+      name:"奇数个数", type:"line", showSymbol:false, data:odds,
+      lineStyle:{width:1.4, color:"#3fb950"},
+      markLine:{silent:true, symbol:"none", data:[
+        {yAxis: oddMean, lineStyle:{type:"dashed", color:"#d29922"}, label:{color:"#d29922", formatter:"均值 " + oddMean.toFixed(2)}},
+        {yAxis: 3, lineStyle:{type:"dotted", color:"#8b949e"}, label:{show:false}}]},
+    }],
+    tooltip:{trigger:"axis"},
+  });
+}
+
+function distBar(id, cats, data, opt) {
+  const ch = echartsInit(id);
+  if (!ch) return;
+  const base = {
+    backgroundColor:"transparent", grid:{left:34, right:8, top:18, bottom:28},
+    xAxis:{type:"category", data:cats, axisLabel:{color:"#8b949e", fontSize:10, interval:0}},
+    yAxis:{type:"value", splitLine:{lineStyle:{color:"#2d333b"}}, axisLabel:{color:"#8b949e"}},
+    series:[{name:"期数", type:"bar", data, itemStyle:{color:"#3b82f6", borderRadius:[3,3,0,0]},
+      label:{show:true, position:"top", color:"#8b949e", fontSize:9}}],
+    tooltip:{trigger:"axis"},
+  };
+  ch.setOption(Object.assign(base, opt || {}));
+}
+
+// 实际分布 + 超几何理论值（K = 1..33 中目标类号码个数）
+function distWithTheory(id, cats, counts, K, N) {
+  const theory = cats.map((_, k) => +(hyperPMF(K, k) * N).toFixed(1));
+  distBar(id, cats, counts.map(v => ({value: v, itemStyle:{color:"#3b82f6"}})), {
+    legend:{data:["实际", "理论(超几何)"], textStyle:{color:"#8b949e"}, top:0, itemWidth:12, itemHeight:8},
+    series:[
+      {name:"实际", type:"bar", data:counts, itemStyle:{color:"#3b82f6", borderRadius:[3,3,0,0]},
+       label:{show:true, position:"top", color:"#8b949e", fontSize:9}},
+      {name:"理论(超几何)", type:"line", data:theory, symbol:"circle", symbolSize:5,
+       lineStyle:{type:"dashed", color:"#d29922", width:1.5}, itemStyle:{color:"#d29922"}},
+    ],
+  });
+}
+
+function renderDistCharts() {
+  if (!drawHist || !drawHist.reds) return;
+  const reds = drawHist.reds;
+  const N = reds.length;
+  const tag = $("#distRangeTag");
+  if (tag) tag.textContent = "近 " + N + " 期";
+
+  // 和值分布（每 10 一档，均值所在档高亮金色）
+  const sums = reds.map(r => r.reduce((a, b) => a + b, 0));
+  const sumMean = sums.reduce((a, b) => a + b, 0) / N;
+  const sumBins = {};
+  sums.forEach(s => {
+    const b = Math.floor((s - 21) / 10);
+    const key = (21 + b * 10) + "-" + (30 + b * 10);
+    sumBins[key] = (sumBins[key] || 0) + 1;
+  });
+  const sumKeys = Object.keys(sumBins).sort((a, b) => parseInt(a) - parseInt(b));
+  const meanKey = sumKeys.find(k => { const [lo, hi] = k.split("-").map(Number); return sumMean >= lo && sumMean < hi; }) ||
+                  sumKeys.find(k => { const [lo, hi] = k.split("-").map(Number); return sumMean >= lo && sumMean <= hi; });
+  distBar("chDistSum", sumKeys, sumKeys.map(k => ({
+    value: sumBins[k],
+    itemStyle: {color: k === meanKey ? "#d29922" : "#3b82f6", borderRadius: [3,3,0,0]},
+  })), {xAxis: {axisLabel: {color:"#8b949e", fontSize: 9, interval: 0, rotate: 40}}});
+
+  // 跨度分布（每 4 一档）
+  const spans = reds.map(r => Math.max(...r) - Math.min(...r));
+  const spanBins = {};
+  spans.forEach(s => { const b = Math.floor(s / 4); const key = (b * 4) + "-" + (b * 4 + 3); spanBins[key] = (spanBins[key] || 0) + 1; });
+  const spanKeys = Object.keys(spanBins).sort((a, b) => parseInt(a) - parseInt(b));
+  distBar("chDistSpan", spanKeys, spanKeys.map(k => spanBins[k]));
+
+  // 奇数个数分布 + 理论（16 个奇数）
+  const odds = reds.map(r => r.filter(x => x % 2 === 1).length);
+  const oddCats = [0,1,2,3,4,5,6];
+  distWithTheory("chDistOdd", oddCats, oddCats.map(k => odds.filter(v => v === k).length), 16, N);
+
+  // 三区比 TOP8
+  const zoneCnt = {};
+  reds.forEach(r => {
+    const a = r.filter(x => x <= 11).length, b = r.filter(x => x >= 12 && x <= 22).length;
+    const key = a + "-" + b + "-" + (6 - a - b);
+    zoneCnt[key] = (zoneCnt[key] || 0) + 1;
+  });
+  const zoneTop = Object.entries(zoneCnt).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  distBar("chDistZone", zoneTop.map(x => x[0]), zoneTop.map(x => x[1]));
+
+  // AC 值分布
+  const acs = reds.map(acValue);
+  const acCats = [];
+  for (let k = 0; k <= 10; k++) acCats.push(k);
+  distBar("chDistAC", acCats, acCats.map(k => acs.filter(v => v === k).length));
+
+  // 小号个数分布 + 理论（1-16 共 16 个）
+  const sizes = reds.map(r => r.filter(x => x <= 16).length);
+  distWithTheory("chDistSize", oddCats, oddCats.map(k => sizes.filter(v => v === k).length), 16, N);
+
+  // 0 路个数分布 + 理论（被 3 整除共 11 个）
+  const routes = reds.map(r => r.filter(x => x % 3 === 0).length);
+  distWithTheory("chDistRoute", oddCats, oddCats.map(k => routes.filter(v => v === k).length), 11, N);
+
+  // 质数个数分布 + 理论（11 个质数）
+  const primes = reds.map(r => r.filter(x => PRIMES_33.has(x)).length);
+  distWithTheory("chDistPrime", oddCats, oddCats.map(k => primes.filter(v => v === k).length), 11, N);
 }
 
 function echartsInit(id) {
@@ -704,8 +1136,17 @@ async function renderHistory() {
 
 // ==================== 评估 ====================
 
+function setEvalSub(name) {
+  $$(".subtab").forEach(el => el.classList.toggle("on", el.dataset.sub === name));
+  $$(".sub-panel").forEach(p => p.classList.toggle("hidden", p.id !== "evalSub-" + name));
+  // 面板由隐藏变为可见时重算图表尺寸（隐藏容器内初始化的图表宽高为 0）
+  requestAnimationFrame(() => Object.values(charts).forEach(c => {
+    try { if (c && c.resize) c.resize(); } catch (_) {}
+  }));
+}
+
 async function runOfflineEval() {
-  setBusy("#btnEval", "评估中（60-120s）…");
+  setBusy("#btnEval", "评估中（30-120s）…");
   try {
     const r = await api("/api/eval/backtest?issues=120&n=10", {method:"POST"});
     renderEval(r);
@@ -726,32 +1167,63 @@ async function runOnline() {
 }
 
 function renderEval(r) {
-  const s = r.system, b = r.random_baseline;
+  const s = r.system || {}, b = r.random_baseline || {};
+  const defs = [
+    {k:"红球平均命中", sys:s.red_hits_mean, rnd:b.red_hits_mean, d:2},
+    {k:"蓝球命中率", sys:s.blue_hit_rate, rnd:b.blue_hit_rate, d:3, isPct:true},
+    {k:"≥五等奖率", sys:s.prize_rate_ge5, rnd:b.prize_rate_ge5, d:3, isPct:true},
+    {k:"总奖金", sys:s.reward_total, rnd:b.reward_total, d:0, isMoney:true},
+    {k:"ROI", sys:s.roi, rnd:b.roi, d:1, isPct:true},
+  ];
+  const cards = defs.map(x => {
+    const fmtV = v => x.isMoney ? "¥" + Number(v || 0).toLocaleString() : (x.isPct ? pct(v) : fmt(v, x.d));
+    const delta = (x.sys ?? 0) - (x.rnd ?? 0);
+    const dTxt = x.isPct
+      ? (delta >= 0 ? "+" : "") + (delta * 100).toFixed(1) + "pp"
+      : (delta >= 0 ? "+" : "") + delta.toFixed(x.d);
+    return '<div class="metric"><div class="k">' + x.k + "（系统）</div>" +
+      '<div class="v">' + fmtV(x.sys) + "</div>" +
+      '<span class="sub">随机基线 ' + fmtV(x.rnd) + ' · Δ<span style="color:' +
+      (delta >= 0 ? "var(--green)" : "var(--red)") + '">' + dTxt + "</span></span></div>";
+  }).join("");
   $("#evalArea").innerHTML =
-    '<div class="metrics">' +
-      metricItem("红球平均命中(系统)", fmt(s.red_hits_mean)) +
-      metricItem("红球平均命中(随机)", fmt(b.red_hits_mean)) +
-      metricItem("蓝球命中率(系统)", pct(s.blue_hit_rate)) +
-      metricItem("蓝球命中率(随机)", pct(b.blue_hit_rate)) +
-      metricItem("≥五等奖率(系统)", pct(s.prize_rate_ge5)) +
-      metricItem("≥五等奖率(随机)", pct(b.prize_rate_ge5)) +
-      metricItem("总奖金(系统/随机)", "¥" + s.reward_total.toFixed(0) + " / ¥" + b.reward_total.toFixed(0)) +
-      metricItem("ROI(系统)", pct(s.roi)) +
-    '</div>' +
-    '<div class="chart" id="chRedDist" style="height:180px"></div>' +
-    '<div class="note">' + escHtml(r.note) + '</div>';
-  const ch = echartsInit("chRedDist");
+    '<div class="note" style="margin-bottom:8px">离线 walk-forward 回测：' + (r.n_issues ?? "-") + " 期 × " +
+    (r.n_tickets_per_issue ?? "-") + " 注/期，系统对照同注数均匀随机基线。</div>" +
+    '<div class="metrics">' + cards + "</div>" +
+    '<div class="grid2">' +
+      '<div><div class="note">红球命中数分布（系统 vs 随机）</div><div class="chart" id="chRedDist" style="height:200px"></div></div>' +
+      '<div><div class="note">奖级分布（系统 vs 随机）</div><div class="chart" id="chPrizeDist" style="height:200px"></div></div>' +
+    "</div>" +
+    '<div class="note callout">' + escHtml(r.note || "") + "</div>";
+  // 红球命中数分布
+  let ch = echartsInit("chRedDist");
   if (ch) {
-    const keys = [...new Set([...Object.keys(s.red_hits_dist || {}), ...Object.keys(b.red_hits_dist || {})])].sort();
+    const keys = [...new Set([...Object.keys(s.red_hits_dist || {}), ...Object.keys(b.red_hits_dist || {})])].map(Number).sort((x, y) => x - y);
     ch.setOption({
-      backgroundColor:"transparent", grid:{left:34,right:8,top:10,bottom:22},
-      xAxis:{type:"category", data:keys.map(k=>k+"红"), axisLabel:{color:"#8b949e"}},
+      backgroundColor:"transparent", grid:{left:38, right:8, top:26, bottom:24},
+      xAxis:{type:"category", data:keys.map(k => k + " 红"), axisLabel:{color:"#8b949e"}},
       yAxis:{type:"value", splitLine:{lineStyle:{color:"#2d333b"}}, axisLabel:{color:"#8b949e"}},
       series:[
-        {name:"系统", type:"bar", data:keys.map(k=>s.red_hits_dist[k]||0), itemStyle:{color:"#3b82f6"}},
-        {name:"随机", type:"bar", data:keys.map(k=>b.red_hits_dist[k]||0), itemStyle:{color:"#8b949e"}},
+        {name:"系统", type:"bar", data:keys.map(k => s.red_hits_dist[k] || 0), itemStyle:{color:"#3b82f6", borderRadius:[3,3,0,0]}},
+        {name:"随机", type:"bar", data:keys.map(k => b.red_hits_dist[k] || 0), itemStyle:{color:"#8b949e", borderRadius:[3,3,0,0]}},
       ],
-      tooltip:{trigger:"axis"}, legend:{textStyle:{color:"#8b949e"},top:0},
+      tooltip:{trigger:"axis"}, legend:{textStyle:{color:"#8b949e"}, top:0, itemWidth:12, itemHeight:8},
+    });
+  }
+  // 奖级分布
+  ch = echartsInit("chPrizeDist");
+  if (ch) {
+    const keys = [...new Set([...Object.keys(s.levels_dist || {}), ...Object.keys(b.levels_dist || {})])].map(Number).sort((x, y) => y - x);
+    const lvlName = l => l === 0 ? "未中奖" : (PRIZE_NAME[l] || ("等" + l));
+    ch.setOption({
+      backgroundColor:"transparent", grid:{left:38, right:8, top:26, bottom:24},
+      xAxis:{type:"category", data:keys.map(lvlName), axisLabel:{color:"#8b949e", fontSize:10}},
+      yAxis:{type:"value", splitLine:{lineStyle:{color:"#2d333b"}}, axisLabel:{color:"#8b949e"}},
+      series:[
+        {name:"系统", type:"bar", data:keys.map(k => s.levels_dist[k] || 0), itemStyle:{color:"#a371f7", borderRadius:[3,3,0,0]}},
+        {name:"随机", type:"bar", data:keys.map(k => b.levels_dist[k] || 0), itemStyle:{color:"#8b949e", borderRadius:[3,3,0,0]}},
+      ],
+      tooltip:{trigger:"axis"}, legend:{textStyle:{color:"#8b949e"}, top:0, itemWidth:12, itemHeight:8},
     });
   }
 }
@@ -759,7 +1231,7 @@ function renderEval(r) {
 async function loadCumulativeEval() {
   try {
     const r = await api("/api/eval/cumulative?limit=120");
-    renderCumulativeEval(r);
+    renderCumulativeEval(r, false);
   } catch(e) { toast("累计报表加载失败: " + e.message); }
 }
 
@@ -778,42 +1250,148 @@ async function loadMethodRecommendations() {
       area.innerHTML = "<div class='note'>暂无可比较方法：需要同一期同时存在方法结果与 uniform 基线。</div>";
       return;
     }
-    const label = {insufficient_sample:"样本不足", monitor:"继续观察", keep_or_research:"保留/研究", disable_candidate:"可考虑关闭"};
-    const rows = items.map(x => "<tr><td>" + escHtml(x.method) + "</td><td>" + x.paired_issues + "</td><td>" + (x.paired_sign_p == null ? "-" : fmt(x.paired_sign_p, 4)) + "</td><td>" + (x.mean_reward_delta == null ? "-" : fmt(x.mean_reward_delta, 2)) + "</td><td>" + (label[x.status] || x.status) + "</td><td>" + escHtml(x.action || "") + "</td></tr>").join("");
-    area.innerHTML = "<div class='note' style='margin-bottom:6px'>🧭 M4.2 方法保留筛查（paired sign-test，对照 uniform；不会自动修改开关）</div><div class='scroll'><table><thead><tr><th>方法</th><th>同期</th><th>p值</th><th>奖金差</th><th>状态</th><th>建议</th></tr></thead><tbody>" + rows + "</tbody></table></div><div class='note'>" + escHtml(r.note || "") + "</div>";
+    const meta = {
+      insufficient_sample: {label: "样本不足", cls: "gradeC"},
+      monitor: {label: "继续观察", cls: "gradeB"},
+      keep_or_research: {label: "保留/研究", cls: "gradeA"},
+      disable_candidate: {label: "可考虑关闭", cls: "gradeC"},
+    };
+    const rows = items.map(x => {
+      const m = meta[x.status] || {label: x.status, cls: "gradeC"};
+      return "<tr><td><code>" + escHtml(x.method) + "</code></td><td>" + x.paired_issues + "</td><td class='mono'>" +
+        (x.paired_sign_p == null ? "-" : fmt(x.paired_sign_p, 4)) + "</td><td class='mono'>" +
+        (x.mean_reward_delta == null ? "-" : fmt(x.mean_reward_delta, 2)) + "</td><td><span class='badge " + m.cls + "'>" + m.label +
+        "</span></td><td>" + escHtml(x.action || "") + "</td></tr>";
+    }).join("");
+    area.innerHTML =
+      "<div class='note' style='margin-bottom:6px'>🧭 方法保留筛查（paired sign-test，对照 uniform；只提示、不自动修改开关）</div>" +
+      "<div class='scroll'><table><thead><tr><th>方法</th><th>同期</th><th>p 值</th><th>奖金差(均)</th><th>状态</th><th>建议</th></tr></thead><tbody>" +
+      rows + "</tbody></table></div><div class='note callout'>" + escHtml(r.note || "") + "</div>";
   } catch(e) { area.innerHTML = "<div class='note'>方法建议加载失败：" + escHtml(e.message) + "</div>"; }
 }
 
-function renderCumulativeEval(r) {
+// 取滚动指标最近一点的 95% CI（优先 30 期窗口）
+function latestRollingCI(g) {
+  const roll = g.rolling || [];
+  if (!roll.length) return {};
+  const last = roll[roll.length - 1];
+  const w = last.w30 || last.w10 || null;
+  if (!w) return {};
+  const out = {};
+  if (w.red_hits && w.red_hits.low != null)
+    out.red = w.red_hits.low.toFixed(2) + " ~ " + w.red_hits.high.toFixed(2);
+  if (w.blue_hit_rate && w.blue_hit_rate.low != null)
+    out.blue = (w.blue_hit_rate.low * 100).toFixed(1) + "~" + (w.blue_hit_rate.high * 100).toFixed(1) + "%";
+  return out;
+}
+
+function renderCumulativeEval(r, keepMethod) {
   const area = $("#cumulativeEvalArea");
   if (!area) return;
-  const groups = r.methods || [];
+  window._cumEval = r;
+  const trendArea = $("#cumTrendArea");
+  const groups = (r && r.methods) || [];
+  const sel = $("#cumMethodSel");
   if (!groups.length) {
-    area.innerHTML = "<div class='note'>暂无 M4.1 逐注评估事实。开奖后点击「在线对照」再生成累计数据。</div>";
+    area.innerHTML = '<div class="note">暂无逐注评估事实：开奖后点击「在线对照」生成累计数据。</div>';
+    if (trendArea) trendArea.innerHTML = "";
+    if (sel) sel.innerHTML = "";
     return;
   }
-  const rows = groups.map(g => "<tr><td>" + escHtml(g.method) + "</td><td>" + g.issues + "</td><td>" + g.tickets + "</td><td>" + fmt(g.red_hits_mean) + "</td><td>" + pct(g.blue_hit_rate) + "</td><td>" + pct(g.prize_rate_ge5) + "</td><td>¥" + Number(g.reward_total||0).toFixed(0) + "</td><td>" + pct(g.roi) + "</td></tr>").join("");
-  area.innerHTML = "<div class='note' style='margin-bottom:6px'>📈 M4.1 在线累计评估（逐注事实，最多 " + (r.sample_limit||120) + " 期）</div>" +
-    "<div class='scroll'><table><thead><tr><th>方法</th><th>期数</th><th>注数</th><th>红球均值</th><th>蓝球命中率</th><th>≥五等奖率</th><th>奖金</th><th>ROI</th></tr></thead><tbody>" + rows + "</tbody></table></div>";
+  if (sel) {
+    const prev = (keepMethod && sel.value && groups.some(g => g.method === sel.value))
+      ? sel.value
+      : (sel.value && groups.some(g => g.method === sel.value) ? sel.value : groups[0].method);
+    sel.innerHTML = groups.map(g => "<option value='" + escHtml(g.method) + "'>方法： " + escHtml(g.method) + "</option>").join("");
+    sel.value = prev;
+  }
+  const method = sel && sel.value ? sel.value : groups[0].method;
+  const rows = groups.map(g => {
+    const ci = latestRollingCI(g);
+    const selMark = g.method === method ? " style='background:var(--blue-soft)'" : "";
+    return "<tr" + selMark + "><td><code>" + escHtml(g.method) + "</code></td><td>" + g.issues + "</td><td>" + g.tickets + "</td>" +
+      "<td>" + fmt(g.red_hits_mean) + (ci.red ? " <span class='ci'>[" + ci.red + "]</span>" : "") + "</td>" +
+      "<td>" + pct(g.blue_hit_rate) + (ci.blue ? " <span class='ci'>[" + ci.blue + "]</span>" : "") + "</td>" +
+      "<td>" + pct(g.prize_rate_ge5) + "</td><td>¥" + Number(g.reward_total || 0).toFixed(0) + "</td>" +
+      "<td style='color:" + ((g.roi || 0) >= 0 ? "var(--green)" : "var(--red)") + "'>" + pct(g.roi) + "</td></tr>";
+  }).join("");
+  area.innerHTML =
+    '<div class="note" style="margin-bottom:6px">📈 在线累计评估（逐注事实，最多 ' + (r.sample_limit || 120) +
+    " 期 · 95% CI 取最近 30 期滚动窗口 · 切换下拉查看趋势）</div>" +
+    '<div class="scroll"><table><thead><tr><th>方法</th><th>期数</th><th>注数</th><th>红球均值 [CI]</th><th>蓝球命中率 [CI]</th><th>≥五等奖率</th><th>奖金</th><th>ROI</th></tr></thead><tbody>' +
+    rows + "</tbody></table></div>";
+  const g = groups.find(x => x.method === method) || groups[0];
+  renderCumTrend(g);
+}
+
+function renderCumTrend(g) {
+  const trendArea = $("#cumTrendArea");
+  if (!trendArea) return;
+  const roll = g.rolling || [];
+  if (roll.length < 2) {
+    trendArea.innerHTML = '<div class="note">滚动趋势需要 ≥2 期评估数据（开奖并在线对照后累积）。</div>';
+    return;
+  }
+  trendArea.innerHTML =
+    '<div class="grid2" style="margin-top:10px">' +
+      '<div><div class="note">红球平均命中 · 10 期滚动（阴影 = 95% CI）· 方法 <code>' + escHtml(g.method) + "</code></div>" +
+      '<div class="chart" id="chCumRed" style="height:210px"></div></div>' +
+      '<div><div class="note">蓝球命中率 · 10 期滚动（%）</div><div class="chart" id="chCumBlue" style="height:210px"></div></div>' +
+    "</div>";
+  const iss = roll.map(p => p.issue);
+  const step = Math.max(0, Math.floor(iss.length / 8) - 1);
+  const pick = key => roll.map(p => (p.w10 || p.w30 || {})[key] || null);
+  // 红球命中滚动 + CI 带
+  let ch = echartsInit("chCumRed");
+  if (ch) {
+    const reds = pick("red_hits");
+    const mean = reds.map(m => (m && m.mean != null) ? +m.mean.toFixed(3) : null);
+    const low = reds.map(m => (m && m.low != null) ? +m.low.toFixed(3) : null);
+    const band = reds.map((m, i) => (m && m.high != null && low[i] != null) ? +(m.high - m.low).toFixed(3) : null);
+    ch.setOption({
+      backgroundColor:"transparent", grid:{left:36, right:10, top:18, bottom:24},
+      xAxis:{type:"category", data:iss, axisLabel:{color:"#8b949e", interval: step}},
+      yAxis:{type:"value", scale:true, splitLine:{lineStyle:{color:"#2d333b"}}, axisLabel:{color:"#8b949e"}},
+      series:[
+        {type:"line", data:low, stack:"ci", symbol:"none", lineStyle:{opacity:0}, silent:true, areaStyle:{opacity:0}},
+        {type:"line", data:band, stack:"ci", symbol:"none", lineStyle:{opacity:0}, silent:true, areaStyle:{color:"rgba(59,130,246,.14)"}},
+        {type:"line", name:"红球命中", data:mean, symbol:"circle", symbolSize:4, lineStyle:{width:1.6, color:"#3b82f6"}},
+      ],
+      tooltip:{trigger:"axis"},
+    });
+  }
+  // 蓝球命中率滚动
+  ch = echartsInit("chCumBlue");
+  if (ch) {
+    const blues = pick("blue_hit_rate");
+    const mean = blues.map(m => (m && m.mean != null) ? +(m.mean * 100).toFixed(2) : null);
+    ch.setOption({
+      backgroundColor:"transparent", grid:{left:40, right:10, top:18, bottom:24},
+      xAxis:{type:"category", data:iss, axisLabel:{color:"#8b949e", interval: step}},
+      yAxis:{type:"value", axisLabel:{color:"#8b949e", formatter:"{value}%"}, splitLine:{lineStyle:{color:"#2d333b"}}},
+      series:[
+        {type:"line", name:"蓝球命中率", data:mean, symbol:"circle", symbolSize:4, lineStyle:{width:1.6, color:"#3fb950"},
+         areaStyle:{color:"rgba(63,185,80,.08)"}},
+      ],
+      tooltip:{trigger:"axis", valueFormatter: v => v + "%"},
+    });
+  }
 }
 
 function renderOnline(rows) {
-  const old = document.getElementById("onlineBlock");
-  if (old) old.remove();
-  const html = rows.length
-    ? '<div class="note" style="margin-bottom:6px">在线对照记录：最近 ' + rows.length + ' 期</div>' +
+  const area = $("#onlineEvalArea");
+  if (!area) return;
+  rows = rows || [];
+  const view = rows.slice(-30).reverse();
+  area.innerHTML = view.length
+    ? '<div class="note" style="margin-bottom:6px">在线对照记录（最近 ' + view.length + " 期，新→旧）</div>" +
       '<div class="scroll"><table>' +
-      '<thead><tr><th>期号</th><th>红球命中</th><th>蓝球命中</th><th>奖金</th></tr></thead>' +
-      '<tbody>' + rows.map(r => "<tr><td class='mono'>" + r.issue + "</td><td>" + r.red_hits +
-        "</td><td>" + (r.blue_hit ? "✓" : "—") + "</td><td>¥" + Number(r.reward||0).toFixed(0) + "</td></tr>").join("") +
+      '<thead><tr><th>期号</th><th>红球命中(均值)</th><th>蓝球命中</th><th>奖金</th><th>注数</th></tr></thead>' +
+      '<tbody>' + view.map(r => "<tr><td class='mono'>" + r.issue + "</td><td>" + r.red_hits +
+        "</td><td>" + (r.blue_hit ? "✓" : "—") + "</td><td>¥" + Number(r.reward || 0).toFixed(0) +
+        "</td><td>" + (r.ticket_count ?? "-") + "</td></tr>").join("") +
       '</tbody></table></div>'
     : '<div class="note">暂无在线对照记录（开奖后可点「在线对照」）。</div>';
-  const ev = $("#evalArea");
-  const add = document.createElement("div");
-  add.id = "onlineBlock";
-  add.style.cssText = "border-top:1px solid var(--border);margin-top:12px;padding-top:10px";
-  add.innerHTML = html;
-  ev.appendChild(add);
 }
 
 // ==================== LLM 离线评估（M3.1） ====================
@@ -1105,25 +1683,23 @@ function calTable(bins) {
 function renderMlEval(r) {
   const red = r.red || {}, blue = r.blue || {};
   const rp = red.paired || {}, bp = blue.paired || {};
-  $("#mlEvalArea").innerHTML =
+  const sec = (title, x, p) =>
+    '<h4 class="ana-sec">' + title + "</h4>" +
     '<div class="metrics">' +
-      metricItem("红球 Brier(ML)", fmt(red.brier_ml, 4)) +
-      metricItem("红球 Brier(均匀)", fmt(red.brier_uniform, 4)) +
-      metricItem("红球 logloss(ML)", fmt(red.logloss_ml, 4)) +
-      metricItem("红球 logloss(均匀)", fmt(red.logloss_uniform, 4)) +
-      metricItem("红球 paired p", fmt(rp.p, 4), rp.method === "wilcoxon" ? "Wilcoxon" : rp.method) +
-      metricItem("蓝球 Brier(ML)", fmt(blue.brier_ml, 4)) +
-      metricItem("蓝球 Brier(均匀)", fmt(blue.brier_uniform, 4)) +
-      metricItem("蓝球 logloss(ML)", fmt(blue.logloss_ml, 4)) +
-      metricItem("蓝球 logloss(均匀)", fmt(blue.logloss_uniform, 4)) +
-      metricItem("蓝球 paired p", fmt(bp.p, 4), bp.method === "wilcoxon" ? "Wilcoxon" : bp.method) +
-      metricItem("评估期数", r.n_issues, "重训 " + (r.refits || 0) + " 次") +
-    '</div>' +
-    '<div style="margin-top:10px" class="note">红球校准曲线（可靠性图）：预测概率 vs 实际命中频率，越贴对角线越准</div>' +
+      metricItem("Brier(ML)", fmt(x.brier_ml, 4), "均匀基线 " + fmt(x.brier_uniform, 4)) +
+      metricItem("log-loss(ML)", fmt(x.logloss_ml, 4), "均匀基线 " + fmt(x.logloss_uniform, 4)) +
+      metricItem("paired p", fmt(p.p, 4), p.method === "wilcoxon" ? "Wilcoxon（vs 均匀）" : (p.method || "")) +
+    "</div>";
+  $("#mlEvalArea").innerHTML =
+    '<div class="note" style="margin-bottom:6px">🤖 ML walk-forward 滚动评估：' + (r.n_issues ?? "-") + " 期 · 重训 " +
+    (r.refits || 0) + " 次 · 对照均匀随机基线。</div>" +
+    sec("🔴 红球模型（33 维）", red, rp) +
+    '<div class="note" style="margin:8px 0 4px">红球校准曲线（可靠性图）：预测概率 vs 实际命中频率，越贴对角线越准</div>' +
     calTable(red.calibration) +
-    '<div style="margin-top:10px" class="note">蓝球校准曲线：</div>' +
+    sec("🔵 蓝球模型（16 维）", blue, bp) +
+    '<div class="note" style="margin:8px 0 4px">蓝球校准曲线：</div>' +
     calTable(blue.calibration) +
-    '<div style="margin-top:10px" class="note">' + escHtml(r.conclusion || "") + '</div>';
+    (r.conclusion ? '<div class="note callout">' + escHtml(r.conclusion) + "</div>" : "");
 }
 
 // ==================== 工具 ====================
@@ -1345,7 +1921,7 @@ async function loadAll() {
       if (health.version) {
         const ver = "v" + health.version;
         const vb = $("#verBadge"), vt = $("#verText");
-        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + "（M1-M3 已上线 · v0.7.0，M4 规划中）"; }
+        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + " · M1-M4 已上线 · M5 交互升级中"; }
         if (vt) vt.textContent = ver;
       }
     }

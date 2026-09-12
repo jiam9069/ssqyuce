@@ -67,6 +67,8 @@ def aggregate(runs: List[Dict]) -> Dict:
         "red_hits_mean": float(np.mean(all_red)),
         "red_hits_dist": {int(k): int(v) for k, v in
                           zip(*np.unique(all_red, return_counts=True))},
+        "levels_dist": {int(k): int(v) for k, v in
+                        zip(*np.unique(all_lvl, return_counts=True))},
         "blue_hit_rate": float(np.mean(all_blue)),
         "prize_rate_ge5": float(np.mean(all_lvl >= 5)),
         "prize_rate_ge4": float(np.mean(all_lvl >= 4)),

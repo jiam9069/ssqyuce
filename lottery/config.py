@@ -23,13 +23,14 @@ BACKUP_DATA_URL = (os.environ.get("LOTT_BACKUP_DATA_URL") or "").strip() or None
 
 # ---------- 版本信息（前端主页 / API / GitHub 说明统一引用） ----------
 
-APP_VERSION = "0.8.3"          # M4.5 LLM 网关兼容：extra body / 429 退避 / 观察轮轮转
-APP_BUILD = "2026-09-M4.5"     # 构建标识（M4 长期运营）
+APP_VERSION = "0.9.0"          # M5.1 交互升级：回放命中可视化 / 数据分析增强 / 评估报告重组
+APP_BUILD = "2026-09-M5.1"     # 构建标识（M5 交互与可读性升级）
 APP_MILESTONES = {
     "M1": {"status": "done",    "desc": "前端 Tab 工作台 + 规律库扩容 29 条 + 自动挖掘管道 + 任务系统"},
     "M2": {"status": "done",    "desc": "GBDT/RF 概率模型 + 滚动 Brier 加权融合 + 概率校准 + 蓝球独立投票 + ML walk-forward 评估"},
     "M3": {"status": "done", "desc": "研究闭环：LLM 三轮辩论完善与离线评估、挖掘管道增强、规律研究台"},
     "M4": {"status": "in_progress", "desc": "长期运营：在线累积报表、方法 A/B 开关、通知、多源对账、运维工程"},
+    "M5": {"status": "in_progress", "desc": "交互升级：回放命中可视化、数据分析面板增强（走势/分布/遗漏/蓝球）、评估报告信息架构重组"},
 }
 
 # ---------- LLM 通道（全部来自环境变量，无仓库内置密钥/地址） ----------

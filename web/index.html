@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>双色球智能预测分析系统</title>
-<link rel="stylesheet" href="/static/style.css?v=20260817.9">
+<link rel="stylesheet" href="/static/style.css?v=20260920.1">
 <!-- ECharts CDN + 本地 fallback -->
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
   onerror="this.src='/static/vendor/echarts.min.js?v=20260817.7'"></script>
@@ -51,7 +51,7 @@
               <option value="20">20</option>
             </select></label>
             <label><input type="checkbox" id="cfgLlm" checked> 启用 LLM 推理</label>
-            <button class="primary" onclick="runPredict()">🎯 生成预测</button>
+            <button class="primary" id="btnPredict" onclick="runPredict()">🎯 生成预测</button>
             <button id="btnRegen" onclick="runPredict(true)">🔄 强制重新生成</button>
             <span id="predStatus" style="color:var(--muted);font-size:12px;margin-left:8px;"></span>
           </div>
@@ -74,40 +74,80 @@
       <!-- 数据分析 -->
       <section id="tab-analysis" class="tab-panel">
         <div class="card">
-          <h2>📈 多尺度统计</h2>
+          <h2>📈 多尺度统计 <span class="tag" id="anaWinTag"></span></h2>
           <div class="tabs">
             <div class="tab on" data-w="long" onclick="setWin('long')">长期 · 全量</div>
             <div class="tab" data-w="mid" onclick="setWin('mid')">中期 · 近150期</div>
             <div class="tab" data-w="short" onclick="setWin('short')">短期 · 近30期</div>
           </div>
+          <div class="metrics" id="anaOverview"></div>
           <div class="grid2">
-            <div>
-              <div class="note">红球频率热力（点击号码查看详情）</div>
+            <div class="ana-block">
+              <div class="ana-head">
+                <b>🔴 红球热力</b>
+                <div class="mini-tabs" id="heatModeTabs">
+                  <div class="mini-tab on" data-m="freq" onclick="setHeatMode('freq')">频率</div>
+                  <div class="mini-tab" data-m="omit" onclick="setHeatMode('omit')">当前遗漏</div>
+                  <div class="mini-tab" data-m="ratio" onclick="setHeatMode('ratio')">遗漏比</div>
+                </div>
+              </div>
               <div class="heat" id="heatFreq"></div>
               <div class="legend" id="heatLegend"></div>
+              <div class="note">点击任意号码查看该号统计与近 100 期走势 · 虚线框 = 上期开出</div>
             </div>
-            <div>
-              <div class="note">红球当前遗漏 Top10</div>
-              <div class="chart" id="chOmit"></div>
-            </div>
-            <div>
-              <div class="note">近 60 期和值走势</div>
-              <div class="chart" id="chSum"></div>
-            </div>
-            <div>
-              <div class="note">近 60 期三区比堆积</div>
-              <div class="chart" id="chZone"></div>
+            <div class="ana-block">
+              <div class="ana-head">
+                <b>🔵 蓝球面板</b>
+                <div class="mini-tabs" id="bHeatModeTabs">
+                  <div class="mini-tab on" data-m="freq" onclick="setBHeatMode('freq')">频率</div>
+                  <div class="mini-tab" data-m="omit" onclick="setBHeatMode('omit')">遗漏</div>
+                </div>
+              </div>
+              <div class="heat heat-blue" id="heatBlue"></div>
+              <div class="legend" id="bHeatLegend"></div>
+              <div class="note" style="margin-top:6px">近 30 期蓝球轨迹</div>
+              <div class="chart" id="chBlueTrend" style="height:150px"></div>
             </div>
           </div>
           <div class="note" id="winStats"></div>
         </div>
 
-        <!-- 号码详情弹窗 -->
-        <div class="modal" id="numModal" onclick="closeNumModal(event)">
-          <div class="modal-content" onclick="event.stopPropagation()">
-            <button class="close-btn" onclick="closeNumModal()">✕</button>
-            <h3 id="numModalTitle">号码详情</h3>
-            <div id="numModalBody"></div>
+        <div class="card">
+          <h2>📉 走势分析
+            <select id="trendRange" class="range-sel" onchange="onTrendRangeChange()">
+              <option value="100">近 100 期</option>
+              <option value="300" selected>近 300 期</option>
+              <option value="500">近 500 期</option>
+            </select>
+          </h2>
+          <div class="grid2">
+            <div><div class="note">和值走势（金虚线=均值 · 灰点线=±1σ · 红点线=90% 分位）</div><div class="chart" id="chSum" style="height:210px"></div></div>
+            <div><div class="note">三区比堆积（一区1-11 / 二区12-22 / 三区23-33）</div><div class="chart" id="chZone" style="height:210px"></div></div>
+            <div><div class="note">红球跨度走势（max−min）</div><div class="chart" id="chSpan" style="height:210px"></div></div>
+            <div><div class="note">奇数个数走势</div><div class="chart" id="chOdd" style="height:210px"></div></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>📊 分布统计 <span class="tag" id="distRangeTag"></span></h2>
+          <div class="grid2">
+            <div><div class="note">和值分布（金柱 = 均值所在区间）</div><div class="chart" id="chDistSum" style="height:185px"></div></div>
+            <div><div class="note">跨度分布</div><div class="chart" id="chDistSpan" style="height:185px"></div></div>
+            <div><div class="note">奇数个数分布（虚线 = 超几何理论值）</div><div class="chart" id="chDistOdd" style="height:185px"></div></div>
+            <div><div class="note">三区比 TOP8</div><div class="chart" id="chDistZone" style="height:185px"></div></div>
+            <div><div class="note">AC 值分布</div><div class="chart" id="chDistAC" style="height:185px"></div></div>
+            <div><div class="note">小号个数分布（1-16，虚线=理论）</div><div class="chart" id="chDistSize" style="height:185px"></div></div>
+            <div><div class="note">0路个数分布（被3整除，虚线=理论）</div><div class="chart" id="chDistRoute" style="height:185px"></div></div>
+            <div><div class="note">质数个数分布（虚线=理论）</div><div class="chart" id="chDistPrime" style="height:185px"></div></div>
+          </div>
+          <div class="note">「实际 vs 超几何理论」越接近，越说明号码结构服从均匀随机 —— 与系统诚实口径一致。</div>
+        </div>
+
+        <div class="card">
+          <h2>🕐 遗漏分析 <span class="tag">按当前窗口</span></h2>
+          <div class="grid2">
+            <div><div class="note">当前遗漏 vs 平均遗漏（点在金虚线上方=偏冷，下方=偏热）</div><div class="chart" id="chOmitScatter" style="height:250px"></div></div>
+            <div><div class="note">当前遗漏区间分组（各区间号码个数）</div><div class="chart" id="chOmitBins" style="height:250px"></div></div>
           </div>
         </div>
       </section>
@@ -117,8 +157,8 @@
         <div class="card">
           <h2>🔬 规律库 · 样本外回测结果
             <span class="tag" id="patSummary"></span>
-            <button style="margin-left:8px;font-size:11px;padding:3px 8px;" onclick="runBacktest()">🧪 重新回测</button>
-            <button style="margin-left:4px;font-size:11px;padding:3px 8px;" onclick="runMining()">⛏️ 自动挖掘</button>
+            <button id="btnBacktest" style="margin-left:8px;font-size:11px;padding:3px 8px;" onclick="runBacktest()">🧪 重新回测</button>
+            <button id="btnMine" style="margin-left:4px;font-size:11px;padding:3px 8px;" onclick="runMining()">⛏️ 自动挖掘</button>
             <button style="margin-left:4px;font-size:11px;padding:3px 8px;" onclick="comparePatterns()">⚖️ 多选对比</button>
           </h2>
           <div class="pat-filters">
@@ -167,10 +207,13 @@
         </div>
         <div class="card">
           <h2>📜 历史预测回放</h2>
-          <div class="note">选择期号查看当时系统的预测与实际开奖对照。</div>
-          <select id="replaySelect" onchange="loadReplay()" style="margin:8px 0;padding:4px 8px;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:6px;">
-            <option value="">-- 选择期号 --</option>
-          </select>
+          <div class="replay-bar">
+            <select id="replaySelect" onchange="loadReplay()">
+              <option value="">-- 选择期号 --</option>
+            </select>
+            <label class="chk"><input type="checkbox" id="replaySort" onchange="loadReplay()"> 按命中排序</label>
+            <span class="hint-inline">金框 ✓ = 命中球 · 下拉已标注每期最好成绩</span>
+          </div>
           <div id="replayResult"></div>
         </div>
         <div class="card">
@@ -183,24 +226,65 @@
       <!-- 评估报告 -->
       <section id="tab-eval" class="tab-panel">
         <div class="card">
-          <h2>📊 评估体系 <span class="tag">系统 vs 随机基线</span></h2>
-          <div class="eval-actions">
-            <button onclick="runOfflineEval()">📊 离线评估</button>
-            <button onclick="runOnline()">✔ 在线对照</button>
-            <button onclick="loadCumulativeEval()">📈 累计报表</button>
-            <button onclick="loadMethodRecommendations()">🧭 方法建议</button>
-            <button onclick="exportCumulativeEval()">⬇ 导出 CSV</button>
-            <button id="btnMlEval" onclick="runMlEval()">🤖 ML 模型评估</button>
-            <span id="mlEvalStatus" class="test-result"></span>
-            <button id="btnLlmEval" onclick="runLlmEval()">🧠 LLM 离线评估</button>
-            <span id="llmEvalStatus" class="test-result"></span>
+          <h2>📊 评估报告 <span class="tag">系统 vs 随机基线 · 诚实口径</span></h2>
+          <div class="subtabs">
+            <div class="subtab on" data-sub="overview" onclick="setEvalSub('overview')">📋 综合概览</div>
+            <div class="subtab" data-sub="cumulative" onclick="setEvalSub('cumulative')">📈 累计对照</div>
+            <div class="subtab" data-sub="methods" onclick="setEvalSub('methods')">🧭 方法对比</div>
+            <div class="subtab" data-sub="ml" onclick="setEvalSub('ml')">🤖 ML 模型</div>
+            <div class="subtab" data-sub="llm" onclick="setEvalSub('llm')">🧠 LLM 通道</div>
           </div>
-          <div id="evalArea"><div class="note">点击「离线评估」生成结果（约需 30~120 秒）。</div></div>
-          <div id="methodEvalLine" class="note" style="margin:6px 0;font-size:12px"></div>
-          <div id="cumulativeEvalArea" style="margin-top:12px;"><div class="note">📈 在线累计报表：点击「累计报表」加载按方法的长期对照。</div></div>
-          <div id="methodRecommendationArea" style="margin-top:12px;"><div class="note">🧭 方法建议：至少 60 期且需同期开出 uniform 基线后才给出筛查结论。</div></div>
-          <div id="mlEvalArea" style="margin-top:12px;"><div class="note">🤖 ML 概率模型状态加载中…</div></div>
-          <div id="llmEvalArea" style="margin-top:12px;"><div class="note">🧠 LLM 三通道评估（stat / stat+LLM / random）：后台任务运行，完成后自动展示对比、paired p 值与成本。</div></div>
+
+          <!-- 综合概览 -->
+          <div id="evalSub-overview" class="sub-panel">
+            <div class="eval-actions">
+              <button id="btnEval" onclick="runOfflineEval()">📊 离线评估</button>
+              <button id="btnOnline" onclick="runOnline()">✔ 在线对照</button>
+              <span class="hint-inline">离线评估 = 最近期数 walk-forward 回测（约 30~120 秒）；在线对照 = 用已保存预测对照实际开奖</span>
+            </div>
+            <div id="evalArea"><div class="note">点击「离线评估」生成系统 vs 随机基线对比结果。</div></div>
+            <div id="onlineEvalArea" style="margin-top:12px"></div>
+          </div>
+
+          <!-- 累计对照 -->
+          <div id="evalSub-cumulative" class="sub-panel hidden">
+            <div class="eval-actions">
+              <button onclick="loadCumulativeEval()">📈 刷新累计报表</button>
+              <button onclick="exportCumulativeEval()">⬇ 导出 CSV</button>
+              <select id="cumMethodSel" class="range-sel" onchange="renderCumulativeEval(window._cumEval, true)"></select>
+            </div>
+            <div id="cumulativeEvalArea"><div class="note">📈 在线累计报表：开奖后「在线对照」生成逐注事实，此处按方法聚合并给出滚动趋势。</div></div>
+            <div id="cumTrendArea"></div>
+          </div>
+
+          <!-- 方法对比 -->
+          <div id="evalSub-methods" class="sub-panel hidden">
+            <div id="methodEvalLine" class="note" style="margin:0 0 8px;font-size:12px"></div>
+            <div class="eval-actions">
+              <button onclick="loadMethodRecommendations()">🧭 刷新方法建议</button>
+            </div>
+            <div id="methodRecommendationArea"><div class="note">🧭 方法建议：至少 60 期且需同期开出 uniform 基线后才给出筛查结论（不会自动修改开关）。</div></div>
+          </div>
+
+          <!-- ML 模型 -->
+          <div id="evalSub-ml" class="sub-panel hidden">
+            <div class="eval-actions">
+              <button id="btnMlEval" onclick="runMlEval()">🤖 ML 模型评估</button>
+              <span id="mlEvalStatus" class="test-result"></span>
+              <span class="hint-inline">walk-forward 滚动评估，约 2~5 分钟</span>
+            </div>
+            <div id="mlEvalArea"><div class="note">🤖 ML 概率模型状态加载中…</div></div>
+          </div>
+
+          <!-- LLM 通道 -->
+          <div id="evalSub-llm" class="sub-panel hidden">
+            <div class="eval-actions">
+              <button id="btnLlmEval" onclick="runLlmEval()">🧠 LLM 离线评估</button>
+              <span id="llmEvalStatus" class="test-result"></span>
+              <span class="hint-inline">三通道对比（stat / stat+LLM / random），后台运行约 5~30 分钟</span>
+            </div>
+            <div id="llmEvalArea"><div class="note">🧠 LLM 三通道评估：完成后展示对比、paired p 值与成本估算。</div></div>
+          </div>
         </div>
       </section>
 
@@ -323,10 +407,21 @@
 
   
   
-      <footer>双色球智能预测分析系统 <span class="badge badge-ver" id="verText">v0.8.0</span>（M1-M3 已上线 · M4.2 开发中）· 仅供研究参考 · 随机性诚实声明 · 数据源 e.17500.cn</footer>
+      <footer>双色球智能预测分析系统 <span class="badge badge-ver" id="verText">v0.9.0</span>（M1-M4 已上线 · M5 交互升级中）· 仅供研究参考 · 随机性诚实声明 · 数据源 e.17500.cn</footer>
+</div>
+
+<!-- 号码详情弹窗（全局：任意 Tab 均可触发） -->
+<div class="modal" id="numModal" onclick="closeNumModal(event)">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <button class="close-btn" onclick="closeNumModal()">✕</button>
+    <h3 id="numModalTitle">号码详情</h3>
+    <div id="numModalBody"></div>
+    <div class="note" style="margin-top:8px">近 100 期出现轨迹（横虚线 = 该号码位置）</div>
+    <div class="chart" id="chNumTrend" style="height:170px"></div>
+  </div>
 </div>
 
 <div id="toast"></div>
-<script src="/static/app.js?v=20260817.9"></script>
+<script src="/static/app.js?v=20260920.1"></script>
 </body>
 </html>
