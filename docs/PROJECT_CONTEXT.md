@@ -10,10 +10,14 @@
 
 - 发布版本：`v0.9.0`
 - 构建标识：`2026-09-M5.1`
+- 当前主分支提交：`28c7650 feat(ui): M5.1 interactive upgrade (v0.9.0)`
 - GitHub：`https://github.com/jiam9069/ssqyuce`
-- BF.US 部署目录：`/opt/ssqyuce`
-- BF.US 服务：Docker Compose，端口 `18000`
-- 最近验证：容器 `healthy`，`/api/info` 返回 v0.9.0 / 2026-09-M5.1（本地全套测试见第 7 节）。
+- 部署站点（均为 Docker Compose，容器 `ssq-predictor`，端口 `18000`）：
+  - **BF.US**：`/opt/ssqyuce`，GitHub 可直连，构建正常
+  - **R71s.AI**（192.168.5.5）：`/opt/ssq`，GitHub/Docker Hub 直连均不通；升级用「BF.US `docker save|gzip` → 本机中转 → `docker load` + `compose up -d --no-build`」（135MB 镜像传输验证可行）；docker-compose.yml 有本地代理注入改动（SSQ_PROXY），属预期保留
+  - **ivy-ray-EU**（IPv6）：`/opt/ssqyuce`，GitHub 可直连，构建正常
+- 最近验证（2026-09-13）：三站容器均 `healthy`，本机外部访问 `/api/info` 均返回 v0.9.0 / 2026-09-M5.1，3502 期数据；
+  R71s 启动预热期 healthcheck 可能短暂 `unhealthy`（回测占满 CPU 使 8s 探活超时），非故障。
 
 ## 3. 已完成能力
 
