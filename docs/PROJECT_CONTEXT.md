@@ -10,14 +10,16 @@
 
 - 发布版本：`v0.9.0`
 - 构建标识：`2026-09-M5.1`
-- 当前主分支提交：`28c7650 feat(ui): M5.1 interactive upgrade (v0.9.0)`
+- 当前主分支提交：`0036071 docs: record v0.9.0 M5.1 deployment`（功能提交 `28c7650`）
 - GitHub：`https://github.com/jiam9069/ssqyuce`
 - 部署站点（均为 Docker Compose，容器 `ssq-predictor`，端口 `18000`）：
-  - **BF.US**：`/opt/ssqyuce`，GitHub 可直连，构建正常
+  - **BF.US**：`/opt/ssqyuce`，GitHub 可直连，构建正常；也是本机推 GitHub 的中转
   - **R71s.AI**（192.168.5.5）：`/opt/ssq`，GitHub/Docker Hub 直连均不通；升级用「BF.US `docker save|gzip` → 本机中转 → `docker load` + `compose up -d --no-build`」（135MB 镜像传输验证可行）；docker-compose.yml 有本地代理注入改动（SSQ_PROXY），属预期保留
-  - **ivy-ray-EU**（IPv6）：`/opt/ssqyuce`，GitHub 可直连，构建正常
-- 最近验证（2026-09-13）：三站容器均 `healthy`，本机外部访问 `/api/info` 均返回 v0.9.0 / 2026-09-M5.1，3502 期数据；
-  R71s 启动预热期 healthcheck 可能短暂 `unhealthy`（回测占满 CPU 使 8s 探活超时），非故障。
+  - **ZT.JP.Plus**（jp6.ff88.xx.kg）：`/opt/ssqyuce`，GitHub/Docker Hub 均可直连，标准 git clone + 构建；数据与 .env 由 ivy-ray-EU 迁移接替
+- **ivy-ray-EU 已于 2026-09-17 下线删除**（容器/目录/镜像清除，18000 释放，数据已迁往 ZT.JP.Plus）
+- 最近验证（2026-09-17）：三站容器均 `healthy`，本机外部访问 `/api/info` 均返回 v0.9.0 / 2026-09-M5.1；ZT.JP.Plus 3505 期（max 2026108）、自动生成了 2026109 预测、累计评估含 LLM 方法。
+  R71s / ZT.JP.Plus 启动预热期 healthcheck 可能短暂 `unhealthy`（回测占满 CPU 使 8s 探活超时），非故障。
+- **api.b.ai 网关账户余额已耗尽**（`insufficient_user_quota`，balance=0）：LLM 通道自检返回“模型无返回”，纯统计模式不受影响；需充值或换通道后 LLM 才恢复。
 
 ## 3. 已完成能力
 
