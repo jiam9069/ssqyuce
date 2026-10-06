@@ -151,3 +151,186 @@ def filter_candidates(tickets: Iterable[Dict], spec: Optional[Spec] = None) -> L
     if spec is None:
         spec = implement_spec()
     return [t for t in tickets if is_enabled(t.get("method"), spec)]
+
+
+# ==========================================================================
+# U3 方法自适应降权（仅标准库；持久化到 data/adaptive_state.json，不改 SQLite schema）
+#
+# 诚实口径：双色球为独立随机事件，任何方法都不该被“神化”。本模块做的是——
+#   连续 K 期命中低于 uniform 随机基线的方法，在 production 模式自动降权 / 移出候选池；
+#   研究模式（LOTT_METHOD_MODE=research）始终展示全部方法，不删除任何方法。
+# 权重以方法“族:叶子”全名为键（如 stat:markov / llm:deepseek-v4-flash / uniform）。
+# ==========================================================================
+
+
+def _adaptive_path() -> str:
+    from . import config
+    return str(config.ADAPTIVE_STATE_FILE)
+
+
+def _family_leaf(method: str) -> str:
+    return _family(method)
+
+
+def _load_adaptive() -> Dict:
+    """读取自适应状态：{method: {"strike": int, "weight": float, "periods": int}}。"""
+    import json, os
+    try:
+        with open(_adaptive_path(), "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_adaptive(state: Dict) -> None:
+    import json, os
+    from . import config
+    try:
+        config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = config.ADAPTIVE_STATE_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(str(tmp), str(config.ADAPTIVE_STATE_FILE))
+    except OSError as e:  # noqa: BLE001
+        print(f"[methods] 自适应状态写入失败: {e}")
+
+
+def _per_method_issue_rows(limit: int = 500) -> Dict[str, List[Dict]]:
+    """直接从 eval_details 读逐注明细（不改 SQLite schema），按方法分组、按期排序。
+
+    返回 {method: [{issue, red_hits, blue_hit, prize_level}]}。
+    """
+    from . import db
+    conn = db.get_conn()
+    rows = [dict(r) for r in conn.execute(
+        "SELECT issue, method, red_hits, blue_hit, prize_level "
+        "FROM eval_details ORDER BY issue ASC, method, seq").fetchall()[-limit * 200:]]
+    out: Dict[str, List[Dict]] = {}
+    for r in rows:
+        out.setdefault(r["method"], []).append(r)
+    return out
+
+
+def _issue_means(rows: List[Dict]) -> Dict[str, Dict[str, float]]:
+    """按期聚合每方法的 red_hits 均值 / blue_hit 率 / ≥五等奖率。"""
+    by_issue: Dict[str, Dict[str, Dict[str, float]]] = {}
+    for r in rows:
+        it = by_issue.setdefault(r["issue"], {})
+        agg = it.setdefault(r["method"], {"r_sum": 0.0, "b_sum": 0.0, "p5": 0, "n": 0})
+        agg["r_sum"] += float(r["red_hits"])
+        agg["b_sum"] += float(r["blue_hit"])
+        agg["p5"] += 1 if int(r["prize_level"]) >= 5 else 0
+        agg["n"] += 1
+    out: Dict[str, Dict[str, Dict[str, float]]] = {}
+    for issue, methods in by_issue.items():
+        out[issue] = {
+            m: {"red": v["r_sum"] / v["n"],
+                "blue": v["b_sum"] / v["n"],
+                "prize": v["p5"] / v["n"]}
+            for m, v in methods.items()
+        }
+    return out
+
+
+def refresh_adaptive_weights(window: Optional[int] = None) -> Dict:
+    """每期开奖后调用：比较各方法与 uniform 基线，更新累计降权决策。
+
+    返回 {method: {"weight": w, "downweighted": bool, "strike": int, "periods": int,
+                   "red_hits_mean": float|None, "blue_hit_rate": float|None}}。
+    """
+    from . import config
+    window = int(window if window is not None else config.ADAPTIVE_WINDOW)
+    metric = config.ADAPTIVE_METRIC if config.ADAPTIVE_METRIC in ("red", "blue", "prize") else "red"
+
+    per_method = _per_method_issue_rows(window * 50)
+    # 按期聚合成 {issue: {method: metrics}}
+    issue_map = _issue_means(sum(per_method.values(), []))
+    baseline = "uniform"
+
+    strikes = {}          # method -> 当前连续“低于基线”计数（本次窗口）
+    totals = {}           # method -> 累计命中统计
+    n_periods = {}        # method -> 有效配对期数
+    for issue, methods in issue_map.items():
+        if baseline not in methods:
+            continue
+        base_val = methods[baseline][metric]
+        for m, v in methods.items():
+            if m == baseline:
+                continue
+            val = v[metric]
+            totals.setdefault(m, {"reds": 0.0, "blues": 0.0, "prizes": 0.0, "n": 0})
+            # _issue_means 输出键为 red/blue/prize（按期聚合的均/率）
+            totals[m]["reds"] += v["red"]
+            totals[m]["blues"] += v["blue"]
+            totals[m]["prizes"] += v["prize"]
+            totals[m]["n"] += 1
+            n_periods[m] = totals[m]["n"]
+            strikes[m] = strikes.get(m, 0) + (1 if val < base_val else 0)
+
+    # 结合持久化 strike（跨重启保留连续劣绩计数）
+    prev = _load_adaptive()
+    result: Dict[str, Dict] = {}
+    for m, n_p in n_periods.items():
+        prev_s = prev.get(m, {}).get("strike", 0)
+        # 若本次窗口内该期确比基线差则累加，否则重置为 0
+        strike = strikes.get(m, 0)
+        cum_strike = prev_s if n_p < window else (strike if strike > 0 else 0)
+        t = totals[m]
+        red_mean = round(t["reds"] / max(1, t["n"]), 4)
+        blue_rate = round(t["blues"] / max(1, t["n"]), 4)
+        prize_rate = round(t["prizes"] / max(1, t["n"]), 4)
+        downweighted = bool(config.ADAPTIVE_ENABLED and cum_strike >= int(config.ADAPTIVE_K))
+        weight = config.ADAPTIVE_DOWNWEIGHT_FACTOR if downweighted else 1.0
+        result[m] = {
+            "weight": weight, "downweighted": downweighted,
+            "strike": cum_strike, "periods": n_p,
+            "red_hits_mean": red_mean, "blue_hit_rate": blue_rate,
+            "prize_rate_ge5": prize_rate,
+        }
+    # 研究模式不降权（仅记录）
+    if config.METHOD_MODE == "research":
+        for m in result:
+            result[m]["weight"] = 1.0
+            result[m]["downweighted"] = False
+    _save_adaptive(result)
+    return result
+
+
+def adaptive_weights() -> Dict:
+    """返回 {method_fullname: weight}，供引擎融合与候选过滤使用。
+
+    研究模式或自适应关闭时全部返回 1.0；production 模式优先用已计算权重。
+    """
+    from . import config
+    if not config.ADAPTIVE_ENABLED or config.METHOD_MODE == "research":
+        return {}
+    return {m: v.get("weight", 1.0) for m, v in _load_adaptive().items()}
+
+
+def adaptive_status() -> Dict:
+    """供 /api/info 与 /api/eval/cumulative 展示方法自适应降权状态。"""
+    from . import config
+    state = refresh_adaptive_weights()
+    enabled = config.ADAPTIVE_ENABLED and config.METHOD_MODE != "research"
+    return {
+        "enabled": enabled,
+        "mode": config.METHOD_MODE,
+        "k": int(config.ADAPTIVE_K),
+        "metric": config.ADAPTIVE_METRIC,
+        "baseline": "uniform",
+        "window": int(config.ADAPTIVE_WINDOW),
+        "methods": state,
+        "note": ("连续 K 期命中低于随机基线的方法在 production 模式被自动降权；"
+                 "双色球为独立随机事件，此降权仅为诚实聚焦，不构成中奖保证。"),
+    }
+
+
+def _blue_running_rate(limit: int = 30) -> Optional[float]:
+    """蓝球模型近 limit 期命中率（按 method 蓝球命中统计；无样本返回 None）。"""
+    from . import config
+    rows = _per_method_issue_rows(limit * 50)
+    blues: List[int] = []
+    for r in sum(rows.values(), []):
+        blues.append(int(r["blue_hit"]))
+    if not blues:
+        return None
+    return sum(blues) / len(blues)

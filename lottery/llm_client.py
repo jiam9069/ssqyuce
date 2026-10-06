@@ -114,6 +114,7 @@ def chat(system: str, user: str, max_tokens: int = 2000,
     }
     last_err = None
     boosted = False  # 推理型模型（如 deepseek-v4-flash）空 content 时放大预算重试一次
+    thinking_off = False  # U6：已注入 thinking:disabled 关闭思考（应对未显式配置的推理型模型）
     rate_retries = 0  # 429/5xx 瞬态错误退避重试计数（不消耗 attempt）
     t_start = time.time()  # M3.4：单次 chat 总耗时硬上限，防止上游挂起拖死整条链
     for attempt in range(3):
@@ -156,9 +157,20 @@ def chat(system: str, user: str, max_tokens: int = 2000,
                         len(m.get("content") or "") for m in payload["messages"])
                     _usage["completion_chars"] += len(content)
                 return content
-            # content 为空：可能 reasoning_content 吃光了 max_tokens
+            # content 为空：可能 reasoning_content 吃光了 max_tokens（推理型模型）
             finish = data["choices"][0].get("finish_reason")
             reasoning = msg.get("reasoning_content") or ""
+            # U6：若该模型尚未显式关闭思考，先注入 thinking:disabled 重试一次。
+            # 这样换新推理型模型（未在设置里配 extra_body）也能自动处理，避免超时。
+            if not thinking_off and (finish in ("length", "stop") and reasoning):
+                thinking_off = True
+                # 去掉可能冲突的 reasoning_effort，改用显式关闭思考
+                payload.pop("reasoning_effort", None)
+                payload["thinking"] = {"type": "disabled"}
+                print(f"[llm] {model} 疑似推理型（reasoning_content 非空），"
+                      f"自动注入 thinking:disabled 重试一次")
+                attempt -= 1
+                continue
             if not boosted and finish == "length" and reasoning:
                 boosted = True
                 payload["max_tokens"] = max(payload.get("max_tokens", 0) * 3, 6000)
@@ -170,6 +182,15 @@ def chat(system: str, user: str, max_tokens: int = 2000,
             break
         except Exception as e:  # noqa: BLE001
             last_err = str(e)
+            # U6：读取超时也可能是推理型模型在海量 reasoning 上耗时；先注入 thinking:disabled 再放大预算
+            if isinstance(e, requests.exceptions.ReadTimeout) and not thinking_off:
+                thinking_off = True
+                payload.pop("reasoning_effort", None)
+                payload["thinking"] = {"type": "disabled"}
+                timeout = max(timeout or 0, 90)
+                print(f"[llm] 读取超时，先注入 thinking:disabled 重试一次")
+                attempt -= 1
+                continue
             if isinstance(e, requests.exceptions.ReadTimeout) and not boosted:
                 boosted = True
                 payload["max_tokens"] = max(payload.get("max_tokens", 0) * 3, 6000)
@@ -278,26 +299,43 @@ def observations_prompt(stats_json: dict, recent: list, patterns: list,
 
 
 def tickets_prompt(stats_json: dict, recent: list, patterns: list, observations: dict,
-                     feedback: Optional[dict] = None) -> str:
-    """第 2 轮：基于观察生成多注候选号码（含依据/反证/结构分 schema）。"""
+                     feedback: Optional[dict] = None,
+                     red_probs: Optional[list] = None,
+                     blue_probs: Optional[list] = None) -> str:
+    """第 2 轮：组合结构优化（U3 LLM 角色重定位）。
+
+    双色球独立随机，LLM 不再“自由猜测号码”。给定统计模型/ML 的 33/16 维概率
+    分布，LLM 只在硬约束下做**组合结构优化**（和值/三区/奇偶/跨度均衡、红球
+    分散），并从高概率红球区间内挑红球；蓝球由专用 blue_specialist 决定，
+    这里给出的 blue 仅为提示（引擎会以 blue_specialist 覆盖）。
+    """
     fb = f"## 上期预测回馈（命中情况）\n{json.dumps(feedback, ensure_ascii=False)}\n" if feedback else ""
+    red_hint = ""
+    if red_probs:
+        ranked = sorted(enumerate(red_probs, start=1), key=lambda x: -x[1])
+        top = ranked[:15]
+        red_hint = ("## 统计/ML 红球概率分布 Top15\n"
+                    + json.dumps([(n, round(p, 4)) for n, p in top], ensure_ascii=False) + "\n")
     return (
-        "基于以下统计报告与你的观察，生成多注候选号码。\n"
+        "你是双色球组合结构优化器。双色球为独立随机事件，**不要试图‘猜中’号码**，"
+        "你的职责是在给定概率分布与硬约束下，产出**结构上均衡**、**红球覆盖尽量分散**的候选组合。\n"
         f"## 统计报告\n```json\n{json.dumps(stats_json, ensure_ascii=False)}\n```\n"
         f"## 最近走势\n{json.dumps(recent, ensure_ascii=False)}\n"
         f"## 已回测规律明细（n/边际/p_adj/威尔逊区间）\n{json.dumps(patterns, ensure_ascii=False)}\n"
         f"## 你的观察\n{json.dumps(observations, ensure_ascii=False)}\n"
+        + red_hint
         + fb
         + f"请生成 {config.TICKETS_PER_LLM_CALL} 注候选，输出形如：\n"
-        '{"tickets": [{"reds": [6个1-33不重复升序整数], "blue": 1个1-16整数, '
+        '{"tickets": [{"reds": [6个1-33不重复升序整数], "blue": 1个1-16整数(仅供结构示意，实际由专用蓝球模型决定), '
         '"confidence": 0-100整数(你的结构置信度，不代表中奖概率), '
         '"reasoning": "一句话理由(必须引用具体统计数字)", '
         '"patterns_used": ["引用的规律key列表(可以为空)"], '
         '"evidence": {"统计依据": "具体数字，如：遗漏区间6-10的号码近50期出现率34%", "规律引用": "pattern-key"}, '
         '"counter_evidence": ["为什么不选其它号的1-2条具体理由"], '
         '"structure_scores": {"和值": 1-10, "奇偶": 1-10, "三区": 1-10, "跨度": 1-10}}]}\n'
-        "约束：和值尽量落在历史常见区间，三区比/奇偶比不要极端，蓝球尽量分散。"
-        "若某尺度没有可靠信号，请如实降低置信度并说明。evidence 必须引用上文具体数字，禁止编造。"
+        "硬约束：红球从概率分布 Top 区间内选择且尽量分散（不同注之间少重复号）；"
+        "和值落在历史常见区间，三区比/奇偶比不要极端。若某尺度没有可靠信号，请如实降低置信度并说明。"
+        "evidence 必须引用上文具体数字，禁止编造。"
     )
 
 

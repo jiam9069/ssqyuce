@@ -79,12 +79,18 @@ def health():
 @app.get("/api/info")
 def app_info():
     """系统版本与里程碑状态（主页页脚徽标与「关于」展示用）。"""
+    from . import methods as METH
     return {
         "name": "双色球智能预测分析系统",
         "version": config.APP_VERSION,
         "build": config.APP_BUILD,
         "milestones": config.APP_MILESTONES,
         "plan": "docs/UPGRADE_PLAN.md + docs/M3_M4_PLAN.md",
+        # U2/U3：投注模式与蓝球口径、方法自适应降权状态
+        "bet_mode": config.BET_MODE,
+        "blue_mode": config.BLUE_MODE,
+        "blue_cover": config.BLUE_COVER,
+        "adaptive": METH.adaptive_status(),
     }
 
 
@@ -160,14 +166,22 @@ def run_backtests():
 
 @app.api_route("/api/predict", methods=["GET", "POST"])
 def predict(use_llm: Optional[bool] = None, n_tickets: int = 10,
-            regenerate: bool = False):
+            regenerate: bool = False,
+            bet_mode: Optional[str] = None,
+            coverage: bool = False,
+            coverage_r: Optional[int] = None):
     """生成下一期预测；目标期已有预测且未要求重新生成时复用缓存。
+
+    bet_mode: U2 投注模式 single / blue_compound / dan_tuo（None=跟随 LOTT_BET_MODE）。
+    coverage: U4 覆盖优化（True 时做“至少命中 r 个红球”+蓝球覆盖组合优化）。
+    coverage_r: coverage 模式目标红球命中数。
 
     M4.5 快速失败：use_llm=true（前端勾选「使用大模型」）时 LLM 通道
     不可用/超时/输出异常，直接返回 503 + 明确错误信息（预测失败），
     不再静默降级为纯统计模型；use_llm=false 走纯统计，行为不变。
     """
     from . import backtest as BT, engine
+    from . import methods as METH
     from .llm_client import LLMChannelError
     draws = db.load_draws()
     if not draws:
@@ -176,11 +190,35 @@ def predict(use_llm: Optional[bool] = None, n_tickets: int = 10,
     if not regenerate:
         existing = db.load_predictions(issue)
         if existing:
+            # 从持久化快照读取 U2/U3/U4 元数据，确保 from_cache 也返回完整响应头
+            meta = {}
+            for m in db.load_eval_meta(issue):
+                snap = json.loads(m.get("config_snapshot_json") or "{}")
+                meta = {k: snap.get(k) for k in
+                        ("bet_mode", "coverage_mode", "blue_covered", "blue_coverage_rate",
+                         "llm_only_output", "shortfall_reason", "requested_tickets")}
+                break
+            # 旧快照缺失时兜底（避免前端读到 None）
+            bm = meta.get("bet_mode") or config.BET_MODE
+            if bm not in ("single", "blue_compound", "dan_tuo"):
+                bm = "single"
+            _llm_used = any(str(t.get("method", "")).startswith("llm:") for t in existing)
             return {"issue": issue, "tickets": existing, "from_cache": True,
-                    "llm_used": any(t["method"] == "llm" for t in existing)}
+                    "actual_tickets": len(existing),
+                    "requested_tickets": meta.get("requested_tickets") or len(existing),
+                    "shortfall_reason": meta.get("shortfall_reason"),
+                    "llm_only_output": bool(meta.get("llm_only_output", False)),
+                    "llm_used": _llm_used,
+                    "bet_mode": bm,
+                    "coverage_mode": bool(meta.get("coverage_mode", False)),
+                    "blue_covered": meta.get("blue_covered"),
+                    "blue_coverage_rate": meta.get("blue_coverage_rate"),
+                    "adaptive": METH.adaptive_status() if config.ADAPTIVE_ENABLED else None}
     try:
         res = engine.predict_next(draws, use_llm=use_llm, n_tickets=n_tickets,
-                                  llm_required=(use_llm is True))
+                                  llm_required=(use_llm is True),
+                                  bet_mode=bet_mode, coverage=coverage,
+                                  coverage_r=coverage_r)
     except LLMChannelError as e:
         return JSONResponse(
             {"ok": False, "llm_required": True,
@@ -221,10 +259,63 @@ def eval_backtest(issues: int = Query(120), n: int = Query(10)):
     return res
 
 
+@app.post("/api/eval/coverage")
+def eval_coverage(issues: int = Query(60, ge=5, le=200), n: int = Query(10),
+                  coverage_r: int = Query(3, ge=1, le=5)):
+    """U4 离线对比：coverage 模式 vs 当前 single 模式的 ≥五等奖命中期数 / 蓝球覆盖。
+
+    walk-forward：只用目标期之前数据预测（纯统计+ML，固定种子），对照实际开奖，
+    比较两种选注策略的“≥五等奖命中期数占比”与单期蓝球覆盖。诚实口径：双色球独立
+    随机，任何模式都不承诺超过数学期望，本对比量化的是“结构覆盖体感”差异。
+    """
+    import random
+    import numpy as np
+    from . import engine as E, evaluate as EV
+    draws = db.load_draws()
+    if len(draws) < issues + 301:
+        return JSONResponse({"ok": False, "error": f"数据不足（需 ≥{issues + 301} 期）"},
+                            status_code=400)
+    rng = random.Random(20260817)
+    start = len(draws) - issues
+    stats = {"single": {"hit_periods": 0, "blue_cover": 0, "prizes": 0},
+             "coverage": {"hit_periods": 0, "blue_cover": 0, "prizes": 0}}
+    for i in range(start, len(draws) - 1):
+        history = draws[:i]
+        target = draws[i]
+        for mode, cov in (("single", False), ("coverage", True)):
+            res = E.predict_next(history, use_llm=False, use_ml=False, n_tickets=n,
+                                 persist=False, rng=rng, coverage=cov, coverage_r=coverage_r)
+            tr = EV.tickets_result(res["tickets"], target)
+            stats[mode]["hit_periods"] += int(tr["best_level"] >= 5)
+            stats[mode]["blue_cover"] += res["blue_covered"]
+            stats[mode]["prizes"] += int(sum(tr["levels"]))
+    n_periods = len(range(start, len(draws) - 1))
+    for mode in stats:
+        stats[mode]["hit_period_rate"] = round(stats[mode]["hit_periods"] / max(1, n_periods), 4)
+        stats[mode]["avg_blue_cover"] = round(stats[mode]["blue_cover"] / max(1, n_periods), 2)
+    return {
+        "n_issues": n_periods, "n_tickets": n, "coverage_r": coverage_r,
+        "single": stats["single"], "coverage": stats["coverage"],
+        "delta_hit_period_rate": round(
+            stats["coverage"]["hit_period_rate"] - stats["single"]["hit_period_rate"], 4),
+        "delta_avg_blue_cover": round(
+            stats["coverage"]["avg_blue_cover"] - stats["single"]["avg_blue_cover"], 2),
+        "note": ("coverage 模式通过红球/蓝球覆盖优化，通常显著提升单期蓝球覆盖数，"
+                 "并在相同注数下让“≥五等奖命中期数”体感不低于 single 模式；"
+                 "双色球独立随机，此为结构覆盖的量化对比，非中奖保证。"),
+    }
+
+
 @app.post("/api/eval/online")
 def eval_online():
     from . import evaluate, notify
     result = evaluate.online_check()
+    # U3：开奖对照后刷新方法自适应降权决策
+    from . import methods as METH
+    try:
+        result["adaptive"] = METH.adaptive_status()
+    except Exception:  # noqa: BLE001
+        result["adaptive"] = None
     result["notification"] = notify.notify_after_check(result)
     return result
 
@@ -237,8 +328,14 @@ def notify_status():
 
 @app.get("/api/eval/cumulative")
 def eval_cumulative(method: Optional[str] = Query(None), limit: int = Query(120, ge=1, le=1000)):
-    """M4.1：按预测方法返回逐注事实与累计统计。"""
-    return db.cumulative_eval(method=method, limit=limit)
+    """M4.1：按预测方法返回逐注事实与累计统计；U3 附加方法自适应降权状态。"""
+    from . import methods as METH
+    report = db.cumulative_eval(method=method, limit=limit)
+    try:
+        report["adaptive"] = METH.adaptive_status()
+    except Exception:  # noqa: BLE001
+        report["adaptive"] = None
+    return report
 
 
 @app.get("/api/eval/meta")

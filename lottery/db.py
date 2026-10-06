@@ -436,6 +436,14 @@ def save_eval_meta(issue: str, tickets: List[Dict], result: Optional[Dict] = Non
                      "mode": config.METHODS_SPEC.get("mode", "all"),
                      "tokens": sorted(config.METHODS_SPEC.get("tokens", set())),
                  },
+                 # U2/U3/U4：记录投注/覆盖模式与蓝球覆盖快照，供「从缓存返回预测」重建
+                 # 完整响应头（避免 from_cache 丢元数据，前端新特性依赖这些字段）
+                 "bet_mode": result.get("bet_mode"),
+                 "coverage_mode": result.get("coverage_mode"),
+                 "blue_covered": result.get("blue_covered"),
+                 "blue_coverage_rate": result.get("blue_coverage_rate"),
+                 # LLM 实际注数模式：True = 注数以 LLM 真实产出为准（未补齐统计票）
+                 "llm_only_output": bool(result.get("llm_only_output", False)),
              }, ensure_ascii=False),
              int(bool(result.get("llm_used") or method.startswith("llm:"))), len(rows), task_id,
              "predicted", now),

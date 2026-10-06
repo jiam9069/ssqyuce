@@ -8,9 +8,9 @@
 
 ## 2. 当前发布状态
 
-- 发布版本：`v0.9.0`
-- 构建标识：`2026-09-M5.1`
-- 当前主分支提交：`0036071 docs: record v0.9.0 M5.1 deployment`（功能提交 `28c7650`）
+- 发布版本：`v1.0.0`
+- 构建标识：`2026-10-U6`
+- 当前主分支提交：见 `git log -1`（v1.0.0 发布提交）
 - GitHub：`https://github.com/jiam9069/ssqyuce`
 - 部署站点（均为 Docker Compose，容器 `ssq-predictor`，端口 `18000`）：
   - **BF.US**：`/opt/ssqyuce`，GitHub 可直连，构建正常；也是本机推 GitHub 的中转
@@ -22,6 +22,25 @@
 - **api.b.ai 网关账户余额已耗尽**（`insufficient_user_quota`，balance=0）：LLM 通道自检返回“模型无返回”，纯统计模式不受影响；需充值或换通道后 LLM 才恢复。
 
 ## 3. 已完成能力
+
+### v1.0.0：v3 方案 U1–U7（2026-10）
+
+- **U1 极简预测首页**：7 Tab → 2 层导航（「本期推荐」+「更多」抽屉）；票卡默认折叠 + 匹配度星级；
+  复制全部 / 跟我买 / 我的号码诊断 / 开奖倒计时 / 设置浮层。
+- **U2 蓝球专项**：`models.blue_specialist` 专用蓝球模型；`_pick_blue_coverage` 蓝球覆盖优先
+  （单期覆盖 ~5 → ~10）；`_apply_blue_mode` 运行命中率低于随机基线自动回退均匀 16；
+  投注模式 `single / blue_compound / dan_tuo`。
+- **U3 自适应降权 + LLM 角色重定位**：`methods.refresh_adaptive_weights` 连续 K 期低于随机基线自动
+  降权/移出候选池（production），research 保留全对比；LLM 改为"给定概率分布的组合结构优化"，
+  不再自由猜号，蓝球交由 blue_specialist 决定。
+- **U4 组合覆盖优化**：`coverage_optimize` 贪心 + 退火；`/api/eval/coverage` 离线对照。
+- **U5 复盘 + 跟我买 + 中奖回执**：首页战绩卡、一键复制蓝球覆盖最优子集、开奖回执闭环。
+- **U6 推理模型兜底**：`reasoning_content` 非空且 content 为空 → 自动注入 `thinking:disabled` 重试。
+- **U7 LLM 实际生成注数模式**：开关 `LOTT_LLM_ONLY_OUTPUT`（默认 1）。LLM 推理时注数以大模型真实产出为准，
+  **不再用统计/ML 候选补齐到 `LOTT_N_TICKETS`**；响应新增 `llm_only_output` /
+  `shortfall_reason=llm_only_actual_count`。纯统计 / coverage / 复式 / 胆拖模式行为不变。
+- 测试：新增 `tests/test_v3_u2_u3_u4.py`、`tests/test_v3_llm_thinking_fallback.py`、
+  `tests/test_llm_only_output.py`，全量 72 passed。
 
 ### M5.1 交互升级（v0.9.0，前端为主）
 

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>双色球智能预测分析系统</title>
-<link rel="stylesheet" href="/static/style.css?v=20260920.1">
+<link rel="stylesheet" href="/static/style.css?v=20261005.1">
 <!-- ECharts CDN + 本地 fallback -->
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
   onerror="this.src='/static/vendor/echarts.min.js?v=20260817.7'"></script>
@@ -14,49 +14,67 @@
 
   <!-- 顶栏 -->
   <header class="topbar">
-    <div class="brand">
-      <h1>🎱 双色球智能预测分析系统</h1>
+    <div class="brand" onclick="switchTab('predict')" title="返回本期推荐">
+      <h1>🎱 双色球</h1>
       <span class="badge" id="dataStatus">加载中…</span>
       <span class="badge badge-ver" id="verBadge" title="系统版本">v·</span>
     </div>
     <div class="topbar-actions">
+      <button class="gear-btn" onclick="toggleGearPop(event)" title="常用设置">⚙️</button>
       <button onclick="toggleTheme()" title="切换主题">🌓 主题</button>
       <button onclick="exportData()" title="导出数据">📥 导出</button>
+    </div>
+    <!-- 齿轮弹层：高频设置（注数 / LLM 开关） -->
+    <div class="gear-pop hidden" id="gearPop">
+      <div class="gp-title">⚙️ 常用设置</div>
+      <label>注数
+        <select id="cfgTickets" onchange="recalcPredictConfig()">
+          <option value="5">5</option><option value="10" selected>10</option>
+          <option value="20">20</option>
+        </select>
+      </label>
+      <label class="switch-row" title="关闭后预测只使用统计模型">
+        <span>启用 LLM 推理</span>
+        <span class="switch"><input type="checkbox" id="cfgLlm" checked onchange="recalcPredictConfig()"><span class="slider"></span></span>
+      </label>
+      <div class="track-note">更多设置见「更多」→ 系统 → 设置</div>
     </div>
   </header>
 
   <div class="layout">
 
-    <!-- 侧边导航 -->
+    <!-- 侧边导航：极简两层级 -->
     <nav class="sidebar">
-      <button class="nav-btn active" data-tab="predict" onclick="switchTab('predict')">🎯 预测中心</button>
-      <button class="nav-btn" data-tab="analysis" onclick="switchTab('analysis')">📈 数据分析</button>
-      <button class="nav-btn" data-tab="patterns" onclick="switchTab('patterns')">🔬 规律研究</button>
-      <button class="nav-btn" data-tab="replay" onclick="switchTab('replay')">🗓️ 历史回放</button>
-      <button class="nav-btn" data-tab="eval" onclick="switchTab('eval')">📊 评估报告</button>
-      <button class="nav-btn" data-tab="data" onclick="switchTab('data')">⚙️ 数据管理</button>
-      <button class="nav-btn" data-tab="settings" onclick="switchTab('settings')">🔧 设置</button>
+      <button class="nav-btn home-btn active" data-tab="predict" onclick="switchTab('predict')">🎯 本期推荐</button>
+      <div class="nav-sep"></div>
+      <button class="nav-btn" onclick="openMore()">📂 更多</button>
     </nav>
 
     <!-- 主内容区 -->
     <main class="content">
 
-      <!-- 预测中心 -->
+      <!-- 首页：本期推荐（U1 极简预测首页） -->
       <section id="tab-predict" class="tab-panel active">
-        <div class="card">
-          <h2>🎯 下一期预测 <span class="tag" id="predIssue"></span></h2>
-          <div class="pred-config" id="predConfig">
-            <label>注数: <select id="cfgTickets" onchange="recalcPredictConfig()">
-              <option value="5">5</option><option value="10" selected>10</option>
-              <option value="20">20</option>
-            </select></label>
-            <label><input type="checkbox" id="cfgLlm" checked> 启用 LLM 推理</label>
-            <button class="primary" id="btnPredict" onclick="runPredict()">🎯 生成预测</button>
-            <button id="btnRegen" onclick="runPredict(true)">🔄 强制重新生成</button>
-            <span id="predStatus" style="color:var(--muted);font-size:12px;margin-left:8px;"></span>
+        <div class="home-hero">
+          <div>
+            <div class="hero-title">🎯 本期推荐 <span class="tag" id="predIssue"></span></div>
+            <div class="hero-countdown" id="predCountdown"></div>
           </div>
-          <div id="predList"></div>
-          <div class="note" id="predNote"></div>
+          <div class="hero-actions">
+            <button class="primary" id="btnPredict" onclick="runPredict()">🎯 生成预测</button>
+            <button id="btnRegen" onclick="runPredict(true)">🔄 重新生成</button>
+            <button class="btn-copyall" onclick="copyAllTickets()">📋 复制全部</button>
+            <button class="btn-follow" onclick="followMyPick()">🤝 跟我买</button>
+          </div>
+        </div>
+        <div class="pred-status" id="predStatus"></div>
+        <div id="predList"></div>
+        <div class="note" id="predNote"></div>
+
+        <!-- 历史战绩（U5）：系统近 N 期真实表现 · 诚实口径 -->
+        <div class="card">
+          <h2>🏆 历史战绩 <span class="tag">系统近 N 期 · 诚实口径（双色球独立随机，无超额保证）</span></h2>
+          <div id="trackRecord"></div>
         </div>
 
         <!-- 我的号码诊断 -->
@@ -68,6 +86,12 @@
             <button id="btnDiagnose" onclick="runDiagnose()">诊断</button>
           </div>
           <div id="diagResult"></div>
+        </div>
+
+        <!-- 中奖回执（U5）：你复制的注是否中奖 -->
+        <div class="card hidden" id="winReceiptCard">
+          <h2>🎫 上期开奖回执 <span class="tag" id="winReceiptTag"></span></h2>
+          <div id="winReceipt"></div>
         </div>
       </section>
 
@@ -405,9 +429,29 @@
     </main>
   </div>
 
+  <!-- 更多抽屉（研究功能入口，弱化但完整保留） -->
+  <div class="more-overlay" id="moreOverlay" onclick="closeMore(event)"></div>
+  <aside class="more-drawer" id="moreDrawer" aria-label="更多功能">
+    <div class="more-drawer-head">
+      <b>📂 更多</b>
+      <button class="more-close" onclick="closeMore()" title="关闭">✕</button>
+    </div>
+    <div class="more-group">
+      <div class="gtitle">研究</div>
+      <button class="more-item" onclick="switchTab('analysis')">📈 数据分析</button>
+      <button class="more-item" onclick="switchTab('patterns')">🔬 规律研究</button>
+      <button class="more-item" onclick="switchTab('replay')">🗓️ 历史回放</button>
+    </div>
+    <div class="more-group">
+      <div class="gtitle">⚙️ 系统</div>
+      <button class="more-item" onclick="switchTab('eval')">📊 评估报告</button>
+      <button class="more-item" onclick="switchTab('data')">💾 数据管理</button>
+      <button class="more-item" onclick="switchTab('settings')">🔧 设置</button>
+    </div>
+  </aside>
+
   
-  
-      <footer>双色球智能预测分析系统 <span class="badge badge-ver" id="verText">v0.9.0</span>（M1-M4 已上线 · M5 交互升级中）· 仅供研究参考 · 随机性诚实声明 · 数据源 e.17500.cn</footer>
+      <footer>双色球智能预测分析系统 <span class="badge badge-ver" id="verText">v1.0.0</span>（M1-M5 + U1-U7 已上线）· 仅供研究参考 · 随机性诚实声明 · 数据源 e.17500.cn</footer>
 </div>
 
 <!-- 号码详情弹窗（全局：任意 Tab 均可触发） -->
@@ -422,6 +466,6 @@
 </div>
 
 <div id="toast"></div>
-<script src="/static/app.js?v=20260920.1"></script>
+<script src="/static/app.js?v=20261005.1"></script>
 </body>
 </html>

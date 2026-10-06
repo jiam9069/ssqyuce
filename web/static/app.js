@@ -123,6 +123,9 @@ function switchTab(name) {
   history.replaceState(null, "", "#" + name);
   $$(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
   $$(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + name));
+  // 切到研究页时收起「更多」抽屉
+  if (name !== "predict") closeMore();
+  if (name === "predict") { hideGearPop(); renderCountdown(); }
   if (name === "settings") { loadLlmConfig(); loadMethodsConfig(); }
   if (name === "analysis") {
     if (allFeatures) renderWindow(allFeatures);
@@ -131,6 +134,40 @@ function switchTab(name) {
   if (name === "patterns" && allPatterns.length) renderPatterns(allPatterns, _summary(allPatterns));
   if (name === "replay") populateReplaySelect();
 }
+
+// ==================== 「更多」抽屉 ====================
+function openMore() {
+  $("#moreOverlay")?.classList.add("open");
+  $("#moreDrawer")?.classList.add("open");
+  hideGearPop();
+}
+function closeMore(e) {
+  // 点击遮罩或关闭按钮时收起；点击抽屉内部不收起
+  if (e && e.target !== $("#moreOverlay")) return;
+  $("#moreOverlay")?.classList.remove("open");
+  $("#moreDrawer")?.classList.remove("open");
+}
+
+// ==================== 齿轮弹层（常用设置） ====================
+function toggleGearPop(e) {
+  if (e) e.stopPropagation();
+  const pop = $("#gearPop");
+  if (!pop) return;
+  pop.classList.toggle("hidden");
+  if (!pop.classList.contains("hidden")) closeMore();
+}
+function hideGearPop() {
+  const pop = $("#gearPop");
+  if (pop) pop.classList.add("hidden");
+}
+document.addEventListener("click", (e) => {
+  // 点击弹层外部时收起齿轮弹层
+  const pop = $("#gearPop");
+  if (pop && !pop.classList.contains("hidden") &&
+      !pop.contains(e.target) && !(e.target.closest && e.target.closest(".gear-btn"))) {
+    pop.classList.add("hidden");
+  }
+});
 
 let replayData = null;
 
@@ -248,14 +285,18 @@ async function runPredict(regenerate, btnId) {
     currentIssue = r.issue;
     localStorage.setItem("lastPredictIssue", r.issue);
     renderPredictions(r);
+    // 注数以服务端实际返回为准（LLM 推理模式下不补齐到请求注数）
+    const nActual = (r.tickets || []).length;
+    const nReq = r.requested_tickets || n;
+    const cntTxt = nActual < nReq ? nActual + " 注（按大模型实际产出，未补齐）" : nActual + " 注";
     if (r.from_cache) {
-      $("#predStatus").textContent = "✅ 已复用缓存预测（期号 " + r.issue + "）";
+      $("#predStatus").textContent = "✅ 已复用缓存预测（期号 " + r.issue + "，" + cntTxt + "）";
       $("#predStatus").style.color = "var(--green)";
       toast("已复用缓存预测");
     } else {
-      $("#predStatus").textContent = "✅ 预测已生成（期号 " + r.issue + "）";
+      $("#predStatus").textContent = "✅ 预测已生成（期号 " + r.issue + "，" + cntTxt + "）";
       $("#predStatus").style.color = "var(--green)";
-      toast("预测已生成");
+      toast("预测已生成 " + nActual + " 注");
     }
     if (r.task_id) {
       runTask(r.task_id, () => Promise.resolve(r));
@@ -269,7 +310,7 @@ async function runPredict(regenerate, btnId) {
 }
 
 function renderPredictions(res) {
-  $("#predIssue").textContent = res.issue ? "目标期号：" + res.issue : "";
+  $("#predIssue").textContent = res.issue ? "目标期号 " + res.issue : "";
   const list = $("#predList");
   const items = res.tickets || [];
   if (!items.length) {
@@ -277,12 +318,18 @@ function renderPredictions(res) {
     return;
   }
   window._predTickets = items;
+  window._predIssue = res.issue;
   window._currentProbs = res.red_probs ? {red_probs: res.red_probs, blue_probs: res.blue_probs || []} : {};
   list.innerHTML = items.map((t, i) => {
-    const balls = t.reds.map(r => "<span class='ball red sm' onclick='showNumDetail(" + r + ")'>" + String(r).padStart(2,"0") + "</span>").join("");
-    const blue = "<span class='ball blue sm' onclick='showNumDetailBlue(" + t.blue + ")'>" + String(t.blue).padStart(2,"0") + "</span>";
-    const badge = t.method.startsWith("llm:") ? "<span class='badge llm'>LLM推理</span>"
-      : "<span class='badge'>" + escHtml(t.method) + "</span>";
+    const balls = t.reds.map(r => "<span class='ball red sm' onclick='event.stopPropagation();showNumDetail(" + r + ")'>" + String(r).padStart(2,"0") + "</span>").join("");
+    const blue = "<span class='ball blue sm' onclick='event.stopPropagation();showNumDetailBlue(" + t.blue + ")'>" + String(t.blue).padStart(2,"0") + "</span>";
+    const badge = t.method.startsWith("llm:")
+      ? "<span class='t-badge llm'>LLM推理</span>"
+      : "<span class='t-badge'>" + escHtml(t.method) + "</span>";
+    // 结构小结：一句话（和值 · 三区 · 奇偶），去掉统计噪音
+    const sum = ticketSummary(t);
+    const stars = starsFor(t.confidence);
+    // 详情（点击展开后才显示）——保留全部证据/规律/反证/结构分，但默认折叠
     const rt = t.reasoning ? '<div class="reasoning">💬 ' + escHtml(t.reasoning) + '</div>' : '';
     const used = (t.patterns_used || []).length ? '<div class="reasoning">规律引用：' + escHtml(t.patterns_used.join("、")) + '</div>' : '';
     let evd = "";
@@ -297,27 +344,129 @@ function renderPredictions(res) {
       const sc = Object.entries(t.structure_scores).map(([k,v]) => escHtml(k) + "=" + v).join(" · ");
       evd += '<div class="reasoning">📐 结构分：' + sc + '</div>';
     }
-    const confColor = t.confidence > 60 ? "var(--green)" : t.confidence > 40 ? "var(--gold)" : "var(--muted)";
-    return '<div class="ticket">' +
-      '<div class="row1">' +
-        "<span style='color:var(--muted)'>#" + (i+1) + "</span>" +
+    const body = (rt || used || evd)
+      ? '<div class="t-body">' + rt + used + evd + '</div>'
+      : '';
+    return '<div class="ticket mini" id="tick-' + i + '" onclick="toggleTicket(' + i + ')">' +
+      '<div class="t-head">' +
+        '<span class="t-idx">' + (i + 1) + '</span>' +
         '<div class="balls">' + balls + " " + blue + "</div>" +
         badge +
-        '<div class="conf"><num style="color:' + confColor + '">置信度 ' + Number(t.confidence).toFixed(1) + '/100</num><div class="bar"><i style="width:' + Math.min(100, t.confidence) + '%"></i></div></div>' +
-        "<button class='copy-btn' onclick='copyTicket(" + i + ")' title='复制'>📋</button>" +
-        "<button class='fav-btn' onclick='toggleFav(" + i + ")' title='收藏'>☆</button>" +
-      '</div>' +
-      (rt || used || evd ? '<div class="detail">' + rt + used + evd + '</div>' : '') +
-    '</div>';
+        '<span class="t-sum">' + sum + '</span>' +
+        '<span class="stars" title="匹配度（基于结构均衡度，非中奖保证）">' + stars + '</span>' +
+        "<button class='t-copy' onclick='event.stopPropagation();copyTicket(" + i + ")'>📋</button>" +
+        '<span class="chev">▾</span>' +
+      '</div>' + body + '</div>';
   }).join("");
   $("#predNote").textContent = res.note || "";
+  renderWinReceipt();
+  renderCountdown();
+}
+
+// 一句话结构小结：和值 · 三区 · 奇偶
+function ticketSummary(t) {
+  const reds = (t.reds || []).slice().sort((a, b) => a - b);
+  const sum = reds.reduce((a, b) => a + b, 0);
+  const z1 = reds.filter(x => x <= 11).length;
+  const z2 = reds.filter(x => x >= 12 && x <= 22).length;
+  const z3 = reds.length - z1 - z2;
+  const odd = reds.filter(x => x % 2 === 1).length;
+  return "和值" + sum + " · 三区" + z1 + "-" + z2 + "-" + z3 + " · 奇偶" + odd + ":" + (reds.length - odd);
+}
+
+// 匹配度星级（0~5）：基于置信度 + 结构均衡度，标注为「匹配度」而非中奖保证
+function starsFor(confidence) {
+  const c = Number(confidence) || 0;
+  let score = c / 20; // 0~5
+  if (!isFinite(score)) score = 0;
+  const full = Math.max(0, Math.min(5, Math.round(score)));
+  let s = "";
+  for (let k = 1; k <= 5; k++) s += k <= full ? "★" : "<span class='off'>★</span>";
+  return s;
+}
+
+// 折叠/展开单注
+function toggleTicket(i) {
+  const el = $("#tick-" + i);
+  if (el) el.classList.toggle("open");
 }
 
 function copyTicket(i) {
   const t = window._predTickets?.[i];
   if (!t) return;
   const txt = t.reds.map(r => String(r).padStart(2,"0")).join(" ") + " + " + String(t.blue).padStart(2,"0");
-  navigator.clipboard.writeText(txt).then(() => toast("已复制: " + txt)).catch(() => toast("复制失败"));
+  navigator.clipboard.writeText(txt).then(() => toast("已复制第 " + (i + 1) + " 注")).catch(() => toast("复制失败"));
+}
+
+// 复制全部：把全部推荐注复制并记录到本机（供开奖回执）
+function copyAllTickets() {
+  const items = window._predTickets || [];
+  if (!items.length) { toast("暂无预测"); return; }
+  const lines = items.map(t => t.reds.map(r => String(r).padStart(2,"0")).join(" ") + " + " + String(t.blue).padStart(2,"0"));
+  navigator.clipboard.writeText(lines.join("\n")).then(() => {
+    toast("已复制全部 " + items.length + " 注");
+    saveMyCopy(items);
+  }).catch(() => toast("复制失败"));
+}
+
+// 跟我买：挑选「蓝球覆盖最优 + 组合最均衡」的子集（默认 5 注），一键复制
+function followMyPick() {
+  const items = window._predTickets || [];
+  if (!items.length) { toast("暂无预测"); return; }
+  const want = Math.min(5, items.length);
+  // 贪心：优先选不重复蓝球，其次按匹配度（置信度）排序，保证蓝球覆盖面
+  const chosen = [];
+  const usedBlue = new Set();
+  const rest = items.slice().sort((a, b) => (Number(b.confidence) || 0) - (Number(a.confidence) || 0));
+  for (const t of rest) {
+    if (chosen.length >= want) break;
+    if (!usedBlue.has(t.blue)) { chosen.push(t); usedBlue.add(t.blue); }
+  }
+  // 蓝球不够去重时，补充剩余
+  for (const t of rest) {
+    if (chosen.length >= want) break;
+    if (!chosen.includes(t)) chosen.push(t);
+  }
+  const lines = chosen.map(t => t.reds.map(r => String(r).padStart(2,"0")).join(" ") + " + " + String(t.blue).padStart(2,"0"));
+  navigator.clipboard.writeText(lines.join("\n")).then(() => {
+    toast("跟我买：已选 " + chosen.length + " 注（蓝球覆盖 " + usedBlue.size + " 个）并复制");
+    saveMyCopy(chosen);
+  }).catch(() => toast("复制失败"));
+}
+
+// 记录「我复制的注」，供开奖后回执
+function saveMyCopy(tickets) {
+  const issue = window._predIssue;
+  const slim = (tickets || []).map(t => ({reds: t.reds, blue: t.blue}));
+  try { localStorage.setItem("myCopy", JSON.stringify({issue: issue, tickets: slim, at: Date.now()})); } catch (_) {}
+}
+
+// 距离下一期开奖倒计时（双色球周二/周四/周日 21:15）
+function nextDrawDate() {
+  const now = new Date();
+  const d = new Date(now);
+  d.setHours(21, 15, 0, 0);
+  for (let i = 0; i < 8; i++) {
+    const dow = d.getDay();
+    if (dow === 2 || dow === 4 || dow === 0) {
+      if (d > now) return d;
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  return d;
+}
+function renderCountdown() {
+  const el = $("#predCountdown");
+  if (!el) return;
+  const target = nextDrawDate();
+  const diff = target - new Date();
+  if (diff <= 0) { el.textContent = "距开奖 已开奖/开奖中"; return; }
+  const days = Math.floor(diff / 86400000);
+  const hours = Math.floor((diff % 86400000) / 3600000);
+  const mins = Math.floor((diff % 3600000) / 60000);
+  const wd = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][target.getDay()];
+  const dateStr = (target.getMonth() + 1) + "月" + target.getDate() + "日 " + wd;
+  el.textContent = "⏰ 距 " + dateStr + " 21:15 开奖 " + days + " 天 " + hours + " 时 " + mins + " 分";
 }
 
 function toggleFav(i) {
@@ -1901,6 +2050,106 @@ async function saveMethodsConfig() {
   }
 }
 
+// ==================== U5：历史战绩 + 中奖回执 ====================
+
+// 首页「历史战绩」卡：系统近 N 期真实表现（诚实口径）
+// 数据源：/api/eval/cumulative -> {methods:[{method, red_hits_mean, blue_hit_rate, prize_rate_ge5, reward_total, roi, issues, tickets}]}
+function renderTrackRecord(cumulative) {
+  const el = $("#trackRecord");
+  if (!el) return;
+  const groups = (cumulative && cumulative.methods) || [];
+  if (!groups.length) {
+    el.innerHTML = '<div class="track-note">暂无逐注评估事实：开奖后到「更多 → 系统 → 评估报告」点「在线对照」生成累计数据。</div>';
+    return;
+  }
+  // 汇总口径：跨方法聚合（总注数加权），给出一个诚实的系统整体数字
+  let tIssues = 0, tTickets = 0, tRed = 0, tBlue = 0, tGe5 = 0, tReward = 0;
+  let bestMethod = null, bestScore = -Infinity;
+  let bestLevel = 0;
+  groups.forEach(g => {
+    tIssues += (g.issues || 0);
+    tTickets += (g.tickets || 0);
+    tRed += (g.red_hits_mean || 0) * (g.tickets || 0);
+    tBlue += (g.blue_hit_rate || 0) * (g.tickets || 0);
+    tGe5 += (g.prize_rate_ge5 || 0) * (g.tickets || 0);
+    tReward += (g.reward_total || 0);
+    // 从逐注 rows 提取历史最好奖级
+    (g.rows || []).forEach(r => { if ((r.prize_level || 0) > bestLevel) bestLevel = r.prize_level; });
+    // 最好方法：综合红球命中 + 蓝球命中
+    const sc = (g.red_hits_mean || 0) + (g.blue_hit_rate || 0) * 6;
+    if (sc > bestScore) { bestScore = sc; bestMethod = g; }
+  });
+  const blueRate = tTickets ? tBlue / tTickets : 0;
+  const ge5Rate = tTickets ? tGe5 / tTickets : 0;
+  const redMean = tTickets ? tRed / tTickets : 0;
+  const bestLvl = bestLevel > 0 ? (PRIZE_NAME[bestLevel] || ("等" + bestLevel)) : null;
+
+  el.innerHTML =
+    '<div class="track-metrics">' +
+      '<div class="track-item"><div class="k">红球命中均值</div><div class="v">' + fmt(redMean, 2) + '<span class="sub">/6 注 · ' + tTickets + ' 注样本</span></div></div>' +
+      '<div class="track-item"><div class="k">蓝球命中率</div><div class="v">' + pct(blueRate) + '<span class="sub">理论随机 6.25%</span></div></div>' +
+      '<div class="track-item"><div class="k">≥五等奖率</div><div class="v">' + pct(ge5Rate) + '</div></div>' +
+      '<div class="track-item"><div class="k">累计奖金</div><div class="v">¥' + Number(tReward || 0).toFixed(0) + '</div></div>' +
+      (bestLvl ? '<div class="track-item"><div class="k">最好奖级</div><div class="v pos">' + bestLvl + '</div></div>' : '') +
+    '</div>' +
+    '<div class="track-note">' +
+      (bestMethod ? '最佳方法 <code>' + escHtml(bestMethod.method) + '</code>：红球 ' + fmt(bestMethod.red_hits_mean, 2) + ' · 蓝球 ' + pct(bestMethod.blue_hit_rate) + ' · 奖金 ¥' + Number(bestMethod.reward_total || 0).toFixed(0) + '。' : '') +
+      '双色球为独立随机事件，系统不承诺超过随机基线；此处为真实开奖对照的诚实数字。' +
+    '</div>';
+}
+
+// 首页「中奖回执」：你复制的注（localStorage myCopy）对照实际开奖，显示中了几块
+async function renderWinReceipt() {
+  const card = $("#winReceiptCard");
+  const box = $("#winReceipt");
+  const tag = $("#winReceiptTag");
+  if (!card || !box) return;
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem("myCopy") || "null"); } catch (_) {}
+  if (!saved || !saved.issue || !saved.tickets || !saved.tickets.length) {
+    card.classList.add("hidden");
+    return;
+  }
+  try {
+    const hist = await api("/api/predictions/history?limit=50");
+    const item = (hist || []).find(h => h.issue === saved.issue);
+    if (!item || !item.actual) {
+      // 尚未开奖
+      card.classList.remove("hidden");
+      if (tag) tag.textContent = saved.issue;
+      box.innerHTML = '<div class="receipt-line receipt-lose">期号 ' + escHtml(saved.issue) + ' 尚未开奖，开奖后自动回执。</div>' +
+        '<div class="receipt-note">你复制的 ' + saved.tickets.length + ' 注已记录在本机，开奖后可在此查看是否中奖。</div>';
+      return;
+    }
+    const act = item.actual;
+    const actReds = act.reds || [];
+    const actBlue = act.blue;
+    let winCount = 0, reward = 0, best = 0;
+    saved.tickets.forEach(t => {
+      const rh = (t.reds || []).filter(r => actReds.includes(r)).length;
+      const bh = (t.blue === actBlue) ? 1 : 0;
+      const lvl = localPrizeLevel(rh, bh);
+      if (lvl > 0) { winCount++; reward += (PRIZE_CASH[lvl] || 0); }
+      if (lvl > best) best = lvl;
+    });
+    card.classList.remove("hidden");
+    if (tag) tag.textContent = saved.issue;
+    const actualBalls = actReds.map(r => "<span class='ball red sm'>" + pad2(r) + "</span>").join("") +
+      " <span class='ball blue sm'>" + pad2(actBlue) + "</span>";
+    box.innerHTML =
+      '<div class="receipt-line">实际开奖 <span class="balls" style="display:inline-flex">' + actualBalls + '</span></div>' +
+      (winCount > 0
+        ? '<div class="receipt-line receipt-win">🎉 你复制的 ' + saved.tickets.length + ' 注中，' + winCount + ' 注中奖，共 ¥' + reward.toFixed(0) +
+          (best ? '，最好 ' + (PRIZE_NAME[best] || ("等" + best)) : '') + '。</div>'
+        : '<div class="receipt-line receipt-lose">你复制的 ' + saved.tickets.length + ' 注本期未中奖（红球最多命中 ' + (best || 0) + ' 红）。</div>') +
+      '<div class="receipt-note">双色球每期独立随机，未中奖是常态；请理性投注。</div>';
+  } catch (e) {
+    // 历史接口暂不可用时静默，不阻断首页
+  }
+}
+
+// ==================== 加载 ====================
+
 async function loadAll() {
   try {
     const [feat, pats, preds, health] = await Promise.all([
@@ -1914,6 +2163,8 @@ async function loadAll() {
     allPatterns = pats.items;
     if (preds.tickets && preds.tickets.length) {
       renderPredictions({issue: preds.issue, tickets: preds.tickets, note: ""});
+    } else {
+      renderCountdown();
     }
     await renderHistory();
     if (health) {
@@ -1921,7 +2172,7 @@ async function loadAll() {
       if (health.version) {
         const ver = "v" + health.version;
         const vb = $("#verBadge"), vt = $("#verText");
-        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + " · M1-M4 已上线 · M5 交互升级中"; }
+        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + " · v3.0 极简首页"; }
         if (vt) vt.textContent = ver;
       }
     }
@@ -1930,6 +2181,7 @@ async function loadAll() {
       renderOnline(ev);
       const cumulative = await api("/api/eval/cumulative?limit=120");
       renderCumulativeEval(cumulative);
+      renderTrackRecord(cumulative);   // U5 历史战绩
       loadMethodRecommendations();
     } catch(e) {}
     initMlStatus();
@@ -1939,6 +2191,7 @@ async function loadAll() {
     } catch(e) {}
     loadMethodsConfig();
     loadMiningReports();
+    renderWinReceipt();
   } catch(e) {
     toast("加载失败: " + e.message);
   }

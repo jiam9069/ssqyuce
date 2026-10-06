@@ -23,14 +23,21 @@ BACKUP_DATA_URL = (os.environ.get("LOTT_BACKUP_DATA_URL") or "").strip() or None
 
 # ---------- 版本信息（前端主页 / API / GitHub 说明统一引用） ----------
 
-APP_VERSION = "0.9.0"          # M5.1 交互升级：回放命中可视化 / 数据分析增强 / 评估报告重组
-APP_BUILD = "2026-09-M5.1"     # 构建标识（M5 交互与可读性升级）
+APP_VERSION = "1.0.0"          # v3 方案 U1–U6 全量交付：极简预测首页 / 蓝球专项 / 自适应降权与 LLM 角色重定位 / 覆盖优化 / 复盘跟买 / LLM 实际注数模式
+APP_BUILD = "2026-10-U6"       # 构建标识（U1–U6 交付批次）
 APP_MILESTONES = {
     "M1": {"status": "done",    "desc": "前端 Tab 工作台 + 规律库扩容 29 条 + 自动挖掘管道 + 任务系统"},
     "M2": {"status": "done",    "desc": "GBDT/RF 概率模型 + 滚动 Brier 加权融合 + 概率校准 + 蓝球独立投票 + ML walk-forward 评估"},
     "M3": {"status": "done", "desc": "研究闭环：LLM 三轮辩论完善与离线评估、挖掘管道增强、规律研究台"},
     "M4": {"status": "in_progress", "desc": "长期运营：在线累积报表、方法 A/B 开关、通知、多源对账、运维工程"},
-    "M5": {"status": "in_progress", "desc": "交互升级：回放命中可视化、数据分析面板增强（走势/分布/遗漏/蓝球）、评估报告信息架构重组"},
+    "M5": {"status": "done", "desc": "交互升级：回放命中可视化、数据分析面板增强（走势/分布/遗漏/蓝球）、评估报告信息架构重组"},
+    "U1": {"status": "done", "desc": "极简预测首页：7 Tab 改 2 层导航（本期推荐 + 更多抽屉），票卡默认折叠 + 匹配度星级"},
+    "U2": {"status": "done", "desc": "蓝球专项：blue_specialist 专用模型 + 蓝球覆盖优先 + 运行命中率回退 + 复式/胆拖投注模式"},
+    "U3": {"status": "done", "desc": "方法自适应降权 + LLM 角色重定位（组合结构优化，蓝球交由专用模型）"},
+    "U4": {"status": "done", "desc": "组合命中覆盖优化：贪心 + 模拟退火的 coverage_r 红球 / 蓝球覆盖优化器"},
+    "U5": {"status": "done", "desc": "单注复盘战绩卡 + 跟我买一键选注 + 中奖回执闭环"},
+    "U6": {"status": "done", "desc": "推理型模型自动关闭思考兜底（reasoning_content 非空时注入 thinking:disabled 重试）"},
+    "U7": {"status": "done", "desc": "LLM 实际生成注数模式：以大模型真实产出注数为准，不再用统计/ML 候选补齐"},
 }
 
 # ---------- LLM 通道（全部来自环境变量，无仓库内置密钥/地址） ----------
@@ -60,6 +67,10 @@ except (json.JSONDecodeError, TypeError):
 LLM_SAMPLES = int(os.environ.get("LOTT_LLM_SAMPLES", "3"))          # LLM 多轮采样次数（并发）
 TICKETS_PER_LLM_CALL = int(os.environ.get("LOTT_TICKETS_PER_CALL", "5"))
 N_TICKETS = int(os.environ.get("LOTT_N_TICKETS", "10"))             # 最终输出注数
+# LLM_ONLY_OUTPUT（默认 1）：LLM 通道产出候选时，最终注数以 LLM **实际返回**的注数
+# 为准，不再用统计/ML 候选补齐到 N_TICKETS。避免“宣称 10 注、实际仅 4 注来自
+# LLM”的口径不一致。设 0 恢复旧的“候选池混选 + 补齐到 N_TICKETS”行为。
+LLM_ONLY_OUTPUT = os.environ.get("LOTT_LLM_ONLY_OUTPUT", "1") == "1"
 LLM_TIMEOUT = float(os.environ.get("LOTT_LLM_TIMEOUT", "60"))
 # M4.5 快速失败：单次预测 LLM 阶段（观察+选号+校验全部轮次）的墙钟预算（秒）。
 # 默认 75s：加统计部分约 5s 后仍在 Cloudflare 100s 代理超时之内，避免 HTTP 524。
@@ -120,6 +131,47 @@ METHODS_SPEC = _methods.implement_spec(METHODS_RAW)                   # 解析�
 
 # 运行时方法配置持久化（Web 设置页写入，优先于 .env，重启不丢失）
 METHODS_CONFIG_FILE = DATA_DIR / "methods_config.json"
+
+# ---------- U2 蓝球专项 ----------
+# LOTT_BLUE_MODE：model（默认，用 blue_specialist 等模型）/ uniform（整期回退 16 个均匀随机）
+BLUE_MODE = (os.environ.get("LOTT_BLUE_MODE") or "model").strip().lower()
+if BLUE_MODE not in ("model", "uniform"):
+    BLUE_MODE = "model"
+# LOTT_BLUE_COVER：picked 阶段是否按“蓝球去重覆盖优先”（1=是，默认；0=沿用旧的同蓝上限）
+BLUE_COVER = os.environ.get("LOTT_BLUE_COVER", "1") == "1"
+# 蓝球模型运行命中率回退阈值：近 BLUE_FALLBACK_WINDOW 期命中率低于该值 → 该期回退 uniform
+BLUE_FALLBACK_WINDOW = int(os.environ.get("LOTT_BLUE_FALLBACK_WINDOW", "30"))
+BLUE_FALLBACK_MIN_RATE = float(os.environ.get("LOTT_BLUE_FALLBACK_MIN_RATE", "0.045"))
+# 随机蓝球命中理论基线（1/16）
+BLUE_RANDOM_RATE = 1.0 / 16
+
+# ---------- U2 投注模式（single / blue_compound / dan_tuo） ----------
+BET_MODE = (os.environ.get("LOTT_BET_MODE") or "single").strip().lower()
+if BET_MODE not in ("single", "blue_compound", "dan_tuo"):
+    BET_MODE = "single"
+# blue_compound：红 6 固定 + 蓝 k 个 → k 注（蓝球复式展开）
+BLUE_COMPOUND_K = int(os.environ.get("LOTT_BLUE_COMPOUND_K", "5"))
+# dan_tuo：红胆 n 个固定 + 红拖补齐 6 红 + 蓝 1 个 → 展开多注
+DAN_TUO_DANS = int(os.environ.get("LOTT_DAN_TUO_DANS", "4"))
+DAN_TUO_TUOS = int(os.environ.get("LOTT_DAN_TUO_TUOS", "5"))
+
+# ---------- U3 方法自适应降权 ----------
+# LOTT_ADAPTIVE_ENABLED：1=开（默认），0=关（保留人工 A/B 开关语义）
+ADAPTIVE_ENABLED = os.environ.get("LOTT_ADAPTIVE_ENABLED", "1") == "1"
+# 连续 LOTT_ADAPTIVE_K 期命中低于随机基线 → 自动降权 50%（0.5）或移出候选池
+ADAPTIVE_K = int(os.environ.get("LOTT_ADAPTIVE_K", "20"))
+ADAPTIVE_WINDOW = int(os.environ.get("LOTT_ADAPTIVE_WINDOW", "60"))
+ADAPTIVE_DOWNWEIGHT_FACTOR = float(os.environ.get("LOTT_ADAPTIVE_DOWNWEIGHT_FACTOR", "0.5"))
+# 命中比较口径：red（红球平均命中）/ blue（蓝球命中率）/ prize（≥五等奖率）
+ADAPTIVE_METRIC = (os.environ.get("LOTT_ADAPTIVE_METRIC") or "red").strip().lower()
+# 自适应状态持久化文件（不修改 SQLite schema）
+ADAPTIVE_STATE_FILE = DATA_DIR / "adaptive_state.json"
+
+# ---------- U4 组合覆盖优化 ----------
+# coverage 模式：目标“至少命中 r 个红球”，蓝球覆盖数，退火迭代上限
+COVERAGE_R = int(os.environ.get("LOTT_COVERAGE_R", "3"))
+COVERAGE_TRIALS = int(os.environ.get("LOTT_COVERAGE_TRIALS", "3000"))
+COVERAGE_BLUE_K = int(os.environ.get("LOTT_COVERAGE_BLUE_K", "4"))
 
 
 def methods_status() -> Dict:
@@ -279,6 +331,8 @@ LLM_CONFIG_FILE = DATA_DIR / "llm_config.json"
 def load_runtime_llm_config() -> None:
     """启动时读取 data/llm_config.json（若存在），覆盖 LLM 通道配置。"""
     global LLM_DISABLED, LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_MODEL_LIST, LLM_SAMPLES
+    global LLM_VERIFY_ENABLED, LLM_TOTAL_TIMEOUT
+    global LLM_EXTRA_BODY_DEFAULT, LLM_EXTRA_BODY_BY_MODEL
     if not LLM_CONFIG_FILE.exists():
         return
     try:
@@ -295,10 +349,22 @@ def load_runtime_llm_config() -> None:
         LLM_API_KEY = str(conf["api_key"])
     if conf.get("model"):
         LLM_MODEL = str(conf["model"])
-        if LLM_MODEL not in LLM_MODEL_LIST:
-            LLM_MODEL_LIST = [LLM_MODEL] + list(LLM_MODEL_LIST)
+        # U6 修复：设置页保存的模型是唯一事实来源，**替换**（而非追加）模型列表，
+        # 只保留这一个有效模型，避免旧通道的 glm/qwen（magpie 上 404）混入多模型轮转。
+        LLM_MODEL_LIST = [LLM_MODEL]
     if isinstance(conf.get("samples"), int) and conf["samples"] > 0:
         LLM_SAMPLES = int(conf["samples"])
+    if isinstance(conf.get("verify"), bool):
+        LLM_VERIFY_ENABLED = bool(conf["verify"])
+    if isinstance(conf.get("total_timeout"), (int, float)) and conf["total_timeout"] > 0:
+        LLM_TOTAL_TIMEOUT = float(conf["total_timeout"])
+    # U6 修复：设置页通道可自带 extra_body（如关闭思考），避免推理型模型
+    # 因 reasoning_content 占满预算而触发“放大重试”导致总耗时超限。
+    if isinstance(conf.get("extra_body"), dict) and conf["extra_body"]:
+        LLM_EXTRA_BODY_DEFAULT = dict(conf["extra_body"])
+        if LLM_MODEL:
+            LLM_EXTRA_BODY_BY_MODEL = dict(LLM_EXTRA_BODY_BY_MODEL)
+            LLM_EXTRA_BODY_BY_MODEL[LLM_MODEL] = dict(conf["extra_body"])
     print(f"[config] 已加载运行时 LLM 配置（{LLM_CONFIG_FILE.name}）")
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)

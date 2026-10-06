@@ -8,6 +8,7 @@ __pycache__/
 
 # 运行时数据（含密钥与训练产物，禁止入库）
 data/llm_config.json
+data/adaptive_state.json
 
 # 本机生成、提交 GitHub 供 BF.US 导入的可审计挖掘产物
 !data/mining_artifact.json

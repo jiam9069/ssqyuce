@@ -394,3 +394,104 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
   .heat-blue { grid-template-columns: repeat(8, 1fr); }
   .heat .cell { font-size: 9px; }
 }
+
+/* ==================== v3.0 极简首页 + 更多抽屉 + U5 ==================== */
+
+/* 侧边导航精简：只留「本期推荐」+「更多」 */
+.sidebar { width: 132px; min-width: 132px; }
+.nav-btn.home-btn { font-size: 14px; font-weight: 700; padding: 12px 10px; letter-spacing: .3px; }
+.nav-sep { border-top: 1px solid var(--border); margin: 6px 4px; }
+.brand { cursor: pointer; user-select: none; }
+
+/* 更多抽屉（覆盖层） */
+.more-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 300;
+  display: none; opacity: 0; transition: opacity .2s;
+}
+.more-overlay.open { display: block; opacity: 1; }
+.more-drawer {
+  position: fixed; top: 0; right: 0; height: 100vh; width: 280px; max-width: 86vw;
+  background: var(--card); border-left: 1px solid var(--border); z-index: 301;
+  transform: translateX(102%); transition: transform .22s ease;
+  display: flex; flex-direction: column; box-shadow: -8px 0 28px rgba(0,0,0,.35);
+}
+.more-drawer.open { transform: translateX(0); }
+.more-drawer-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 18px; border-bottom: 1px solid var(--border);
+}
+.more-drawer-head b { font-size: 15px; }
+.more-close { background: transparent; border: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 4px; line-height:1; }
+.more-close:hover { color: var(--text); }
+.more-group { padding: 8px 8px 4px; }
+.more-group .gtitle { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; padding: 4px 10px; }
+.more-item {
+  display: block; width: 100%; text-align: left; background: transparent; border: none;
+  padding: 11px 12px; border-radius: 8px; color: var(--muted); font-size: 13.5px; cursor: pointer;
+  transition: all .15s;
+}
+.more-item:hover { background: var(--bg2); color: var(--text); }
+
+/* 首页 hero */
+.home-hero {
+  display: flex; justify-content: space-between; align-items: flex-end; gap: 12px;
+  flex-wrap: wrap; margin-bottom: 14px;
+}
+.hero-title { font-size: 22px; font-weight: 800; display: flex; align-items: center; gap: 10px; letter-spacing:.5px; }
+.hero-title .tag { font-size: 12px; color: var(--muted); font-weight: 400; }
+.hero-countdown { font-size: 13px; color: var(--gold); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.hero-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-copyall { background: var(--green); border-color: var(--green); color: #062c11; font-weight: 700; }
+.btn-copyall:hover { filter: brightness(1.1); color: #062c11; }
+.btn-follow { background: var(--gold); border-color: var(--gold); color: #1a1a1a; font-weight: 700; }
+.btn-follow:hover { filter: brightness(1.1); color: #1a1a1a; }
+.pred-status { font-size: 12px; margin-bottom: 8px; }
+
+/* 极简票卡（默认折叠） */
+.ticket.mini { padding: 9px 12px; cursor: pointer; transition: border-color .15s; }
+.ticket.mini:hover { border-color: var(--blue); }
+.ticket.mini .t-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ticket.mini .t-idx { color: var(--muted); font-size: 12px; min-width: 22px; }
+.ticket.mini .t-sum { font-size: 12.5px; color: var(--muted); }
+.ticket.mini .chev { margin-left: auto; color: var(--muted); transition: transform .2s; font-size: 12px; }
+.ticket.mini.open .chev { transform: rotate(180deg); }
+.ticket.mini .t-body { display: none; margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 8px; }
+.ticket.mini.open .t-body { display: block; }
+.stars { color: var(--gold); letter-spacing: 1px; font-size: 13px; white-space: nowrap; }
+.stars .off { color: var(--border); }
+.t-badge { font-size: 10.5px; padding: 2px 7px; border-radius: 10px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+.t-badge.llm { color: var(--purple); border-color: var(--purple); }
+.ticket.mini .reasoning { margin-top: 4px; font-size: 12px; color: var(--muted); }
+.ticket.mini .t-copy {
+  margin-left: 4px; font-size: 12px; padding: 2px 9px; background: var(--bg2);
+  border: 1px solid var(--border); border-radius: 6px; cursor: pointer; color: var(--text);
+}
+.ticket.mini .t-copy:hover { border-color: var(--blue); color: #fff; }
+
+/* 战绩卡（U5） */
+.track-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 6px; }
+.track-item { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.track-item .k { color: var(--muted); font-size: 12px; }
+.track-item .v { font-size: 18px; font-weight: 700; margin-top: 2px; }
+.track-item .v.pos { color: var(--green); }
+.track-item .v.neg { color: var(--red); }
+.track-note { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+/* 齿轮弹层（常用设置：注数 / LLM开关） */
+.gear-pop {
+  position: absolute; right: 40px; top: 46px; width: 220px; background: var(--card);
+  border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px;
+  box-shadow: 0 8px 26px rgba(0,0,0,.45); z-index: 150;
+}
+.gear-pop .gp-title { font-size: 13px; font-weight: 700; margin-bottom: 10px; color: var(--text); }
+.gear-pop label { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; color: var(--text); margin-bottom: 8px; gap: 8px; }
+.gear-pop select { background: var(--bg2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; font-size: 12.5px; }
+.gear-pop .switch-row { padding: 0; background: transparent; border: none; }
+.topbar-actions { position: relative; }
+.topbar-actions .gear-btn { font-size: 14px; padding: 4px 9px; }
+
+/* 中奖回执（U5） */
+.receipt-line { font-size: 13px; margin: 4px 0; }
+.receipt-win { color: var(--green); font-weight: 600; }
+.receipt-lose { color: var(--muted); }
+.receipt-note { font-size: 11px; color: var(--muted); margin-top: 6px; }

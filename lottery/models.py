@@ -96,6 +96,69 @@ def uniform_model() -> Dict:
     }
 
 
+def blue_specialist(draws: List[Dict],
+                    long_window: int = 0, mid_window: int = 150,
+                    short_window: int = 30,
+                    warmup: int = 50) -> np.ndarray:
+    """蓝球专用 16 维概率模型（U2）。
+
+    综合三路证据并做对数融合（对独立随机事件不承诺超过 1/16 的长期期望，
+    仅提供结构化的覆盖配平信号）：
+    - 长/中/短窗口蓝球频率（decay 加权，越近期权重越高）；
+    - 遗漏回补（当前遗漏 / 平均遗漏 越大权重越高）；
+    - 近期轨迹（最近 short_window 期内的转移倾向 + 平滑先验）。
+    恒为混合的成员，绝不让蓝球“裸奔”在 LLM 自由猜测里。
+    """
+    n = len(draws)
+    if n < warmup:
+        # 数据太少：直接回退均匀，避免过拟合噪音
+        return np.full(B_MAX, 1.0 / B_MAX)
+
+    def _freq_blue(sl: List[Dict], decay: float = 0.0) -> np.ndarray:
+        f = np.zeros(B_MAX)
+        m = len(sl)
+        for i, d in enumerate(sl):
+            w = np.exp(-decay * (m - 1 - i)) if decay > 0 else 1.0
+            f[d["blue"] - 1] += w
+        return f + 0.2  # 拉普拉斯平滑
+
+    long = draws if long_window <= 0 or long_window > n else draws[-long_window:]
+    mid = draws[-mid_window:] if mid_window and mid_window < n else draws
+    short = draws[-short_window:] if short_window and short_window < n else draws
+
+    fl = _norm(_freq_blue(long, decay=0.004))
+    fm = _norm(_freq_blue(mid, decay=0.01))
+    fs = _norm(_freq_blue(short, decay=0.05))
+
+    # 遗漏回补：蓝球当前遗漏 / 平均遗漏
+    om = F.current_omission_blue(draws)
+    avg = F.avg_omission(F.blue_frequency(draws), n)
+    ratio = np.divide(om[1:], avg[1:], out=np.ones(B_MAX), where=avg[1:] > 0)
+    fo = _norm(ratio + 0.1)
+
+    # 近期轨迹：从最近一期的蓝球出发的 1 阶转移（部分证据）
+    T = np.zeros((B_MAX + 1, B_MAX + 1))
+    recent_n = draws[-max(150, short_window):]
+    for a, b in zip(recent_n, recent_n[1:]):
+        T[a["blue"]][b["blue"]] += 1
+    ft = np.full(B_MAX, 1.0 / B_MAX)
+    row = T[draws[-1]["blue"]]
+    if row.sum() > 0:
+        ft = row[1:] / row.sum()
+
+    # 对数融合（0 权保护）+ 轻微向均匀收缩，保证至少 6.25% 期望
+    logits = (0.30 * np.log(np.clip(fl, 1e-9, 1)) +
+              0.25 * np.log(np.clip(fm, 1e-9, 1)) +
+              0.20 * np.log(np.clip(fs, 1e-9, 1)) +
+              0.15 * np.log(np.clip(fo, 1e-9, 1)) +
+              0.10 * np.log(np.clip(ft, 1e-9, 1)))
+    p = np.exp(logits)
+    p = _norm(p)
+    # 向均匀收缩 20%，避免分布过度集中（随机彩票诚实口径）
+    p = 0.80 * p + 0.20 * np.full(B_MAX, 1.0 / B_MAX)
+    return _norm(p)
+
+
 def build_models(draws: List[Dict]) -> Dict[str, Dict]:
     models = [freq_model(draws), omission_model(draws), markov_model(draws), bayes_model(draws)]
     return {m["name"]: m for m in models}
