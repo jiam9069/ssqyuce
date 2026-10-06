@@ -325,10 +325,12 @@ Dockerfile / docker-compose.yml
   1 轮 LLM 实际产出 4 注 → 只显示 4 注，状态栏注明"按大模型实际产出，未补齐"，
   响应新增 `llm_only_output` / `shortfall_reason=llm_only_actual_count`；
   纯统计模式、coverage / 复式 / 胆拖模式行为不变；设 `LOTT_LLM_ONLY_OUTPUT=0` 可恢复旧的补齐行为
-- **关键修复**：`_pick_blue_coverage` 候选池小于注数时会重复追加同一注（U7 路径已绕开并加测试锁定）；
-  `/api/predict` 缓存路径 `llm_used` 判断由 `== "llm"` 修正为 `startswith("llm:")`（原恒为 False）
+- **关键修复**：`/api/predict` 缓存路径 `llm_used` 判断由 `== "llm"` 修正为 `startswith("llm:")`（原恒为 False）；
+  `_pick_blue_coverage` 重复注缺陷已**根治**（补齐分支不再重复计入同一候选票，
+  实测 10 注档修复前约 3 注重复、20 注档只产出 17 注含重复；修复后各档位 0 重复，
+  候选池不足时如实返回较少注数而非复制票）
 - **测试**：新增 `tests/test_v3_u2_u3_u4.py`、`tests/test_v3_llm_thinking_fallback.py`、
-  `tests/test_llm_only_output.py`；全量 **72 passed**，无回归
+  `tests/test_llm_only_output.py`；全量 **74 passed**，无回归
 - **版本号**：v0.9.0 → v1.0.0（build `2026-10-U6`），里程碑表新增 U1–U7
 
 ### v0.9.0（M5.1 交互升级，2026-09）

@@ -40,7 +40,9 @@
   **不再用统计/ML 候选补齐到 `LOTT_N_TICKETS`**；响应新增 `llm_only_output` /
   `shortfall_reason=llm_only_actual_count`。纯统计 / coverage / 复式 / 胆拖模式行为不变。
 - 测试：新增 `tests/test_v3_u2_u3_u4.py`、`tests/test_v3_llm_thinking_fallback.py`、
-  `tests/test_llm_only_output.py`，全量 72 passed。
+  `tests/test_llm_only_output.py`，全量 74 passed。
+- 关键修复：`_pick_blue_coverage` 重复注缺陷根治（补齐分支按对象身份跳过已选票）；
+  `/api/predict` 缓存路径 `llm_used` 判断修正为 `startswith("llm:")`。
 
 ### M5.1 交互升级（v0.9.0，前端为主）
 
