@@ -65,6 +65,38 @@ def test_blue_coverage_priority_picks_distinct_blues():
     assert max(sum(1 for b in legacy if b == x) for x in set(blues)) <= max(2, 10 // 5)
 
 
+def test_blue_coverage_never_duplicates_same_ticket():
+    """回归：候选池小于请求注数时，不得把同一张候选票选两次。
+
+    历史缺陷：第二遍「放宽同蓝上限补齐」重新遍历候选列表、未跳过已选票，
+    凭空复制出重复注（实测纯统计 10 注档约 3 注重复、20 注档产出 17 注含重复），
+    既浪费投注金额又虚增注数。此处锁定「同一对象至多出现一次」。
+    """
+    from lottery import engine as E
+    # 6 张候选（蓝球只有 3 个不同值），却请求 10 注 → 必须触发补齐路径
+    scored = [{"reds": sorted(random.Random(100 + i).sample(range(1, 34), 6)),
+               "blue": [1, 1, 2, 2, 3, 3][i], "confidence": float(90 - i)}
+              for i in range(6)]
+    picked = E._pick_blue_coverage(scored, 10)
+    keys = [(tuple(t["reds"]), t["blue"]) for t in picked]
+    assert len(keys) == len(set(keys)), "输出注不得重复"
+    assert len(picked) <= len(scored), "注数不得超过候选池大小（不得凭空补齐）"
+    assert len(picked) >= 1
+
+
+def test_blue_coverage_no_duplicate_across_ui_ticket_counts():
+    """回归：端到端纯统计路径在 UI 档位（5/10/20 注）下均不得产出重复注。"""
+    from lottery import engine as E
+    draws = _mk_draws(400)
+    for n in (5, 10, 20):
+        for seed in range(6):
+            res = E.predict_next(draws, use_llm=False, use_ml=False,
+                                 n_tickets=n, persist=False,
+                                 rng=random.Random(seed))
+            keys = [(tuple(t["reds"]), t["blue"]) for t in res["tickets"]]
+            assert len(keys) == len(set(keys)), f"n={n} seed={seed} 出现重复注"
+
+
 def test_blue_compound_expands_k_distinct_blues_fixed_reds():
     from lottery import engine as E
     rng = random.Random(3)

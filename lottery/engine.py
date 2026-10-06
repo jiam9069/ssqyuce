@@ -467,6 +467,11 @@ def _pick_blue_coverage(scored: List[Dict], n_tickets: int) -> List[Dict]:
 
     先按置信度降序尽量每个蓝球只取 1 注铺满 n；铺不满（候选池不足）再放宽
     允许同蓝重复补齐（与旧逻辑同蓝上限 max(2, n//5) 对齐兜底）。
+
+    注：**同一张候选票绝不可被选两次**。候选池按 (reds, blue) 去重后，
+    若放宽同蓝上限时重新遍历到已选中的票，会凭空复制出重复注——既浪费投注
+    金额，也虚增注数（实测 10 注档可产出 3 注重复）。故第二遍按对象身份
+    跳过已选票。
     """
     if n_tickets <= 0:
         return []
@@ -483,20 +488,24 @@ def _pick_blue_coverage(scored: List[Dict], n_tickets: int) -> List[Dict]:
             continue
         used_blue.add(t["blue"])
         picked.append(t)
-    # 第二遍：不足则放宽同蓝上限补齐
+    # 第二遍：不足则放宽同蓝上限补齐（跳过已选票，避免重复）
     if len(picked) < n_tickets:
         cap = max(2, n_tickets // 5)
-        blue_count = {}
+        blue_count: Dict[int, int] = {}
         for t in picked:
             blue_count[t["blue"]] = blue_count.get(t["blue"], 0) + 1
+        chosen = {id(t) for t in picked}
         for t in ordered:
             if len(picked) >= n_tickets:
                 break
+            if id(t) in chosen:          # 已选过的候选票不再重复计入
+                continue
             if t["blue"] in used_blue and blue_count.get(t["blue"], 0) >= cap:
                 continue
             if t["blue"] not in used_blue:
                 used_blue.add(t["blue"])
             blue_count[t["blue"]] = blue_count.get(t["blue"], 0) + 1
+            chosen.add(id(t))
             picked.append(t)
     return picked[:n_tickets]
 
