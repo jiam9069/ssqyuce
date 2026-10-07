@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>双色球智能预测分析系统</title>
-<link rel="stylesheet" href="/static/style.css?v=20261007.1">
+<link rel="stylesheet" href="/static/style.css?v=20261007.2">
 <!-- ECharts CDN + 本地 fallback -->
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
   onerror="this.src='/static/vendor/echarts.min.js?v=20260817.7'"></script>
@@ -71,12 +71,6 @@
         <div id="predList"></div>
         <div class="note" id="predNote"></div>
 
-        <!-- 历史战绩（U5）：系统近 N 期真实表现 · 诚实口径 -->
-        <div class="card">
-          <h2>🏆 历史战绩 <span class="tag">系统近 N 期 · 诚实口径（双色球独立随机，无超额保证）</span></h2>
-          <div id="trackRecord"></div>
-        </div>
-
         <!-- 我的号码诊断 -->
         <div class="card">
           <h2>🔍 我的号码诊断</h2>
@@ -92,6 +86,12 @@
         <div class="card hidden" id="winReceiptCard">
           <h2>🎫 上期开奖回执 <span class="tag" id="winReceiptTag"></span></h2>
           <div id="winReceipt"></div>
+        </div>
+
+        <!-- 历史战绩（U5/U9）：真实已对照样本 · 诚实口径（期数由接口实际返回的样本决定，不写死） -->
+        <div class="card">
+          <h2>🏆 历史战绩 <span class="tag" id="trackRecordTag">加载中…</span></h2>
+          <div id="trackRecord"></div>
         </div>
       </section>
 
@@ -453,7 +453,7 @@
   </aside>
 
   
-      <footer>双色球智能预测分析系统 <span class="badge badge-ver" id="verText">v1.0.1</span>（M1-M5 + U1-U8 已上线）· 仅供研究参考 · 随机性诚实声明 · 数据源 e.17500.cn</footer>
+      <footer>双色球智能预测分析系统 <span class="badge badge-ver" id="verText">v1.0.2</span>（M1-M5 + U1-U9 已上线）· 仅供研究参考 · 随机性诚实声明 · 数据源 e.17500.cn</footer>
 </div>
 
 <!-- 号码详情弹窗（全局：任意 Tab 均可触发） -->
@@ -468,6 +468,6 @@
 </div>
 
 <div id="toast"></div>
-<script src="/static/app.js?v=20261007.1"></script>
+<script src="/static/app.js?v=20261007.2"></script>
 </body>
 </html>

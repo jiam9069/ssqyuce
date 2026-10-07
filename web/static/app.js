@@ -2059,22 +2059,34 @@ async function saveMethodsConfig() {
 
 // ==================== U5：历史战绩 + 中奖回执 ====================
 
-// 首页「历史战绩」卡：系统近 N 期真实表现（诚实口径）
-// 数据源：/api/eval/cumulative -> {methods:[{method, red_hits_mean, blue_hit_rate, prize_rate_ge5, reward_total, roi, issues, tickets}]}
+// 首页「历史战绩」卡：真实已对照样本的诚实表现
+// 数据源：/api/eval/cumulative -> {methods:[{method, ..., issues, tickets, rows:[{issue,...}]}], sample_limit}
+//
+// 口径说明（U9 修正）：
+//   · `sample_limit` 是**查询上限**（本页请求 120），不等于实际已累积的样本量；
+//     卡片标题必须报「实际去重期数」，否则在样本只有 1 期时会谎称已有 120 期。
+//   · `g.issues` 是**每个方法各自**的期数，跨方法直接相加会把同一期重复计 N 次
+//     （6 个方法、1 期 → 错报 6 期），故用 rows 里的 issue 去重求并集。
+const TRACK_METHOD_MIN_ISSUES = 60;   // 与后端 LOTT_METHOD_RECOMMENDATION_MIN_ISSUES 对齐：低于此不做方法优劣结论
+
 function renderTrackRecord(cumulative) {
   const el = $("#trackRecord");
+  const tag = $("#trackRecordTag");
   if (!el) return;
   const groups = (cumulative && cumulative.methods) || [];
+  const cap = Number((cumulative && cumulative.sample_limit) || 0);
   if (!groups.length) {
+    if (tag) tag.textContent = "尚无已对照样本 · 诚实口径（双色球独立随机，无超额保证）";
     el.innerHTML = '<div class="track-note">暂无逐注评估事实：开奖后到「更多 → 系统 → 评估报告」点「在线对照」生成累计数据。</div>';
     return;
   }
   // 汇总口径：跨方法聚合（总注数加权），给出一个诚实的系统整体数字
-  let tIssues = 0, tTickets = 0, tRed = 0, tBlue = 0, tGe5 = 0, tReward = 0;
+  let tTickets = 0, tRed = 0, tBlue = 0, tGe5 = 0, tReward = 0;
   let bestMethod = null, bestScore = -Infinity;
   let bestLevel = 0;
+  const issueSet = new Set();          // 真实去重期数（跨方法并集）
   groups.forEach(g => {
-    tIssues += (g.issues || 0);
+    (g.rows || []).forEach(r => { if (r && r.issue != null) issueSet.add(String(r.issue)); });
     tTickets += (g.tickets || 0);
     tRed += (g.red_hits_mean || 0) * (g.tickets || 0);
     tBlue += (g.blue_hit_rate || 0) * (g.tickets || 0);
@@ -2086,13 +2098,21 @@ function renderTrackRecord(cumulative) {
     const sc = (g.red_hits_mean || 0) + (g.blue_hit_rate || 0) * 6;
     if (sc > bestScore) { bestScore = sc; bestMethod = g; }
   });
+  const nIssues = issueSet.size;
   const blueRate = tTickets ? tBlue / tTickets : 0;
   const ge5Rate = tTickets ? tGe5 / tTickets : 0;
   const redMean = tTickets ? tRed / tTickets : 0;
   const bestLvl = bestLevel > 0 ? (PRIZE_NAME[bestLevel] || ("等" + bestLevel)) : null;
 
+  // 标题报实际样本量；查询上限与「未达上限」的实情写进脚注，避免误读成已有 120 期
+  if (tag) {
+    tag.textContent = "已对照 " + nIssues + " 期 · " + tTickets + " 注 · 诚实口径（双色球独立随机，无超额保证）";
+  }
+  const enoughSample = nIssues >= TRACK_METHOD_MIN_ISSUES;
   el.innerHTML =
     '<div class="track-metrics">' +
+      '<div class="track-item"><div class="k">已对照期数</div><div class="v">' + nIssues +
+        '<span class="sub">查询上限 ' + (cap || "-") + ' 期</span></div></div>' +
       '<div class="track-item"><div class="k">红球命中均值</div><div class="v">' + fmt(redMean, 2) + '<span class="sub">/6 注 · ' + tTickets + ' 注样本</span></div></div>' +
       '<div class="track-item"><div class="k">蓝球命中率</div><div class="v">' + pct(blueRate) + '<span class="sub">理论随机 6.25%</span></div></div>' +
       '<div class="track-item"><div class="k">≥五等奖率</div><div class="v">' + pct(ge5Rate) + '</div></div>' +
@@ -2100,9 +2120,27 @@ function renderTrackRecord(cumulative) {
       (bestLvl ? '<div class="track-item"><div class="k">最好奖级</div><div class="v pos">' + bestLvl + '</div></div>' : '') +
     '</div>' +
     '<div class="track-note">' +
-      (bestMethod ? '最佳方法 <code>' + escHtml(bestMethod.method) + '</code>：红球 ' + fmt(bestMethod.red_hits_mean, 2) + ' · 蓝球 ' + pct(bestMethod.blue_hit_rate) + ' · 奖金 ¥' + Number(bestMethod.reward_total || 0).toFixed(0) + '。' : '') +
+      (bestMethod
+        ? (enoughSample
+            ? '最佳方法 <code>' + escHtml(bestMethod.method) + '</code>：红球 ' + fmt(bestMethod.red_hits_mean, 2) +
+              ' · 蓝球 ' + pct(bestMethod.blue_hit_rate) + ' · 奖金 ¥' + Number(bestMethod.reward_total || 0).toFixed(0) + '。'
+            : '样本仅 ' + nIssues + ' 期，<b>远不足以比较方法优劣</b>（后端筛查阈值 ' + TRACK_METHOD_MIN_ISSUES +
+              ' 期），故此处不给出「最佳方法」结论。')
+        : '') +
       '双色球为独立随机事件，系统不承诺超过随机基线；此处为真实开奖对照的诚实数字。' +
+      (nIssues < (cap || 0)
+        ? '（当前累计 ' + nIssues + ' 期，尚未达到查询上限 ' + (cap || "-") +
+          ' 期——样本会随每期开奖后的「在线对照」自动累积。）'
+        : '') +
     '</div>';
+}
+
+function renderTrackRecordError(e) {
+  const el = $("#trackRecord");
+  const tag = $("#trackRecordTag");
+  if (tag) tag.textContent = "样本数据加载失败 · 诚实口径（双色球独立随机，无超额保证）";
+  if (el) el.innerHTML = '<div class="track-note">无法读取累计评估数据（' +
+    escHtml((e && e.message) || "未知错误") + '）。此处不代表样本为 0，请刷新重试。</div>';
 }
 
 // 首页「上期开奖回执」：
@@ -2250,9 +2288,12 @@ async function loadAll() {
       renderOnline(ev);
       const cumulative = await api("/api/eval/cumulative?limit=120");
       renderCumulativeEval(cumulative);
-      renderTrackRecord(cumulative);   // U5 历史战绩
+      renderTrackRecord(cumulative);   // U5/U9 历史战绩
       loadMethodRecommendations();
-    } catch(e) {}
+    } catch(e) {
+      // 取数失败时明确告知，别让标题停在「加载中…」、更不要假装样本为 0
+      renderTrackRecordError(e);
+    }
     initMlStatus();
     try {
       const llmRep = await api("/api/eval/llm/latest");
