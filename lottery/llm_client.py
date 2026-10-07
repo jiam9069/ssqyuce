@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 import time
@@ -14,6 +15,80 @@ _usage = {"calls": 0, "prompt_chars": 0, "completion_chars": 0}
 _usage_lock = threading.Lock()
 
 from . import config
+
+
+# ---------- 推理型模型的「可用输出预算」学习（线程安全，落盘容错） ----------
+# 背景：部分推理型模型（deepseek-v4-flash / glm-5.3 等）会把整个 max_tokens 预算
+# 花在 reasoning_content 上，content 为空。不同模型需要的预算差一个数量级
+# （实测同一个模型 8000 不够、32000 才吐出正文），因此：
+#   1) 一旦探测到「只推理、无正文」，就把预算抬到 LOTT_LLM_MAX_TOKENS 重试；
+#   2) 成功时记住该模型实际可行的预算，之后的调用直接从该预算起步，避免每次
+#      预测都从小预算被截断重试（省一次 30~50s 的往返）。
+_budget_lock = threading.RLock()  # 可重入：remember_max_tokens 内层会再取 _budget_load
+_budget_cache: Optional[Dict[str, int]] = None
+
+
+def _budget_file():
+    return config.DATA_DIR / "llm_budget.json"
+
+
+def _budget_key(url: str, model: str) -> str:
+    return f"{url}|{model}"
+
+
+def _budget_load() -> Dict[str, int]:
+    global _budget_cache
+    with _budget_lock:
+        if _budget_cache is not None:
+            return _budget_cache
+        data: Dict[str, int] = {}
+        try:
+            path = _budget_file()
+            if path.exists():
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(raw, dict):
+                    data = {str(k): int(v) for k, v in raw.items()
+                            if isinstance(v, (int, float)) and v > 0}
+        except (ValueError, OSError, TypeError):
+            data = {}
+        _budget_cache = data
+        return data
+
+
+def learned_max_tokens(url: str, model: str) -> Optional[int]:
+    """该 (端点, 模型) 已知可行的输出预算；未学到返回 None。"""
+    return _budget_load().get(_budget_key(url, model))
+
+
+def remember_max_tokens(url: str, model: str, max_tokens: int) -> None:
+    """记住某模型实际可行的输出预算（仅变大时落盘）。"""
+    try:
+        mt = int(max_tokens)
+    except (TypeError, ValueError):
+        return
+    if mt <= 0:
+        return
+    with _budget_lock:
+        data = _budget_load()
+        key = _budget_key(url, model)
+        if data.get(key, 0) >= mt:
+            return
+        data[key] = mt
+        try:
+            path = _budget_file()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            os.replace(str(tmp), str(path))
+        except OSError as e:
+            print(f"[llm] 输出预算记忆写入失败: {e}")
+
+
+def reset_learned_budgets() -> None:
+    """清空内存中的预算记忆（测试与切换通道后调用；不删除落盘文件）。"""
+    global _budget_cache
+    with _budget_lock:
+        _budget_cache = {}
 
 
 class LLMChannelError(RuntimeError):
@@ -73,6 +148,7 @@ def chat(system: str, user: str, max_tokens: int = 2000,
         if strict:
             raise LLMChannelError("LLM 已被停用（设置页「停用 LLM」或 LOTT_LLM_DISABLED=1）")
         return None
+    requested_max_tokens = int(max_tokens)
     if model_cfg is None:
         if not (config.LLM_BASE_URL and config.LLM_API_KEY and config.LLM_MODEL_LIST):
             msg = ("LLM 通道未配置（请设置 LOTT_LLM_BASE_URL / LOTT_LLM_API_KEY / "
@@ -81,11 +157,13 @@ def chat(system: str, user: str, max_tokens: int = 2000,
                 raise LLMChannelError(msg)
             print("[llm] " + msg + "，降级为纯统计模型")
             return None
-        url = config.LLM_BASE_URL + "/chat/completions"
+        base_url = config.LLM_BASE_URL
+        url = base_url + "/chat/completions"
         api_key = config.LLM_API_KEY
         model = config.LLM_MODEL_LIST[0]
     else:
-        url = str(model_cfg["base_url"]).rstrip("/") + "/chat/completions"
+        base_url = str(model_cfg["base_url"]).rstrip("/")
+        url = base_url + "/chat/completions"
         api_key = str(model_cfg["api_key"])
         model = str(model_cfg["model"])
     payload = {
@@ -112,12 +190,25 @@ def chat(system: str, user: str, max_tokens: int = 2000,
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
+    # 该模型此前学到的可用输出预算：直接从它起步，省掉一次被截断的往返。
+    # 只对「正式轮次」（观察/选号/连接探测，≥1000）生效：critique(600) 这类
+    # 辅助小请求不值得为它多花几十秒推理预算。
+    _learned = learned_max_tokens(base_url, model)
+    if _learned and requested_max_tokens >= 1000:
+        _cap = int(config.LLM_MAX_TOKENS) if int(config.LLM_MAX_TOKENS) > 0 else int(_learned)
+        _target = min(int(_learned), _cap)
+        if _target > int(payload.get("max_tokens", 0)):
+            payload["max_tokens"] = _target
+            # 大预算单次就是几十秒，直接用宽松超时，别先被 60s 判超时白重试一轮
+            timeout = max(timeout or 0, config.LLM_LONG_TIMEOUT)
     last_err = None
-    boosted = False  # 推理型模型（如 deepseek-v4-flash）空 content 时放大预算重试一次
-    thinking_off = False  # U6：已注入 thinking:disabled 关闭思考（应对未显式配置的推理型模型）
+    reasoning_escalated = False  # 推理型模型：已注入 thinking:disabled 并抬升输出预算
+    timeout_escalated = False    # 读取超时：已注入 thinking:disabled 并抬升输出预算
     rate_retries = 0  # 429/5xx 瞬态错误退避重试计数（不消耗 attempt）
     t_start = time.time()  # M3.4：单次 chat 总耗时硬上限，防止上游挂起拖死整条链
-    for attempt in range(3):
+    attempt = 0
+    while attempt < 3:
+        attempt += 1
         if time.time() - t_start > 600:
             last_err = f"chat 总耗时超过 600s 上限（当前第 {attempt} 次尝试），放弃"
             break
@@ -156,46 +247,47 @@ def chat(system: str, user: str, max_tokens: int = 2000,
                     _usage["prompt_chars"] += sum(
                         len(m.get("content") or "") for m in payload["messages"])
                     _usage["completion_chars"] += len(content)
+                remember_max_tokens(base_url, model, payload.get("max_tokens", 0))
                 return content
             # content 为空：可能 reasoning_content 吃光了 max_tokens（推理型模型）
             finish = data["choices"][0].get("finish_reason")
             reasoning = msg.get("reasoning_content") or ""
-            # U6：若该模型尚未显式关闭思考，先注入 thinking:disabled 重试一次。
-            # 这样换新推理型模型（未在设置里配 extra_body）也能自动处理，避免超时。
-            if not thinking_off and (finish in ("length", "stop") and reasoning):
-                thinking_off = True
-                # 去掉可能冲突的 reasoning_effort，改用显式关闭思考
+            # U6/推理型兜底：注入 thinking:disabled（部分网关有效），并把输出预算一次性
+            # 抬到 LOTT_LLM_MAX_TOKENS —— 实测小步放大（×3）不足以让这类模型吐出正文。
+            if not reasoning_escalated and reasoning and finish in ("length", "stop"):
+                reasoning_escalated = True
                 payload.pop("reasoning_effort", None)
                 payload["thinking"] = {"type": "disabled"}
-                print(f"[llm] {model} 疑似推理型（reasoning_content 非空），"
-                      f"自动注入 thinking:disabled 重试一次")
+                cap = max(int(config.LLM_MAX_TOKENS), int(payload.get("max_tokens") or 0))
+                if cap > int(payload.get("max_tokens") or 0):
+                    payload["max_tokens"] = cap
+                    print(f"[llm] {model} 只返回推理内容（reasoning_content {len(reasoning)} 字），"
+                          f"注入 thinking:disabled 并把输出预算抬到 {cap} 重试一次")
+                else:
+                    print(f"[llm] {model} 只返回推理内容（reasoning_content {len(reasoning)} 字），"
+                          f"注入 thinking:disabled 重试一次（预算已在上限 {cap}）")
+                timeout = max(timeout or 0, config.LLM_LONG_TIMEOUT)
                 attempt -= 1
                 continue
-            if not boosted and finish == "length" and reasoning:
-                boosted = True
-                payload["max_tokens"] = max(payload.get("max_tokens", 0) * 3, 6000)
-                timeout = 120
-                print(f"[llm] {model} 推理占满预算，放大 max_tokens 重试一次")
-                attempt -= 1
-                continue
-            last_err = f"模型返回空 content（finish_reason={finish}）"
+            if reasoning:
+                last_err = (f"模型只返回推理内容（reasoning_content {len(reasoning)} 字），"
+                            f"{payload.get('max_tokens')} 输出预算内未产出正文；"
+                            f"请更换模型或调大 LOTT_LLM_MAX_TOKENS")
+            else:
+                last_err = f"模型返回空 content（finish_reason={finish}）"
             break
         except Exception as e:  # noqa: BLE001
             last_err = str(e)
-            # U6：读取超时也可能是推理型模型在海量 reasoning 上耗时；先注入 thinking:disabled 再放大预算
-            if isinstance(e, requests.exceptions.ReadTimeout) and not thinking_off:
-                thinking_off = True
+            # U6：读取超时也可能是推理型模型在海量 reasoning 上耗时；先注入 thinking:disabled
+            # 并把输出预算抬到上限，再重试一次。
+            if isinstance(e, requests.exceptions.ReadTimeout) and not timeout_escalated:
+                timeout_escalated = True
                 payload.pop("reasoning_effort", None)
                 payload["thinking"] = {"type": "disabled"}
-                timeout = max(timeout or 0, 90)
-                print(f"[llm] 读取超时，先注入 thinking:disabled 重试一次")
-                attempt -= 1
-                continue
-            if isinstance(e, requests.exceptions.ReadTimeout) and not boosted:
-                boosted = True
-                payload["max_tokens"] = max(payload.get("max_tokens", 0) * 3, 6000)
-                timeout = 240
-                print(f"[llm] 读取超时，放大 max_tokens 重试一次")
+                cap = max(int(config.LLM_MAX_TOKENS), int(payload.get("max_tokens") or 0))
+                payload["max_tokens"] = cap
+                timeout = max(timeout or 0, config.LLM_LONG_TIMEOUT)
+                print(f"[llm] 读取超时，注入 thinking:disabled 并把输出预算抬到 {cap} 重试一次")
                 attempt -= 1
                 continue
     if strict:
@@ -209,9 +301,10 @@ def chat_json(system: str, user: str, max_tokens: int = 2000,
               temperature: float = 0.8,
               model_cfg: Optional[Dict] = None,
               deadline: Optional[float] = None,
-              strict: bool = False) -> Optional[dict]:
+              strict: bool = False,
+              timeout: Optional[float] = None) -> Optional[dict]:
     text = chat(system, user, max_tokens=max_tokens, temperature=temperature,
-                model_cfg=model_cfg, deadline=deadline, strict=strict)
+                model_cfg=model_cfg, deadline=deadline, strict=strict, timeout=timeout)
     if not text:
         return None
     return _extract_json(text)

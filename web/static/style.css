@@ -495,3 +495,11 @@ footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 2
 .receipt-win { color: var(--green); font-weight: 600; }
 .receipt-lose { color: var(--muted); }
 .receipt-note { font-size: 11px; color: var(--muted); margin-top: 6px; }
+/* 上期推荐的逐注命中明细（U8）：注数较多，给一个可滚动的紧凑列表 */
+.receipt-list {
+  margin: 8px 0 4px; padding: 6px 8px; max-height: 320px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
+}
+.receipt-list .ticket { margin-bottom: 6px; }
+.receipt-list .ticket:last-child { margin-bottom: 0; }
+.receipt-copy-tag { color: var(--muted); margin-top: 10px; }

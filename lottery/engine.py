@@ -331,7 +331,7 @@ def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
         _seen.add(k)
         obs_rotation.append(c)
     obs = None
-    last_obs_err: Optional[str] = None
+    obs_errors: List[str] = []
     for c in obs_rotation:
         try:
             obs = llm_client.chat_json(
@@ -343,14 +343,20 @@ def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
                 deadline=deadline, strict=strict,
             )
         except LLMChannelError as e:
-            last_obs_err = str(e)
+            obs_errors.append(f"{c.get('model') or c.get('name') or '?'}: {e}")
             obs = None
         if obs is not None:
             break
     if obs is None:
         if strict:
-            raise LLMChannelError(last_obs_err or
-                                  "LLM 观察轮返回内容无法解析为 JSON（全部模型尝试失败）")
+            if obs_errors:
+                # 报错要把**全部**模型的失败原因都带上，并以主通道（列表首个）的原因开头：
+                # 否则尾部模型（例如设置页换模型后残留的旧模型 404）会把真正的原因
+                # （如「模型只返回推理内容、未产出正文」）掩盖掉，让人查错方向跑偏。
+                raise LLMChannelError(
+                    f"LLM 观察轮全部模型失败（{len(obs_errors)} 个）——"
+                    + "；".join(obs_errors))
+            raise LLMChannelError("LLM 观察轮返回内容无法解析为 JSON（全部模型尝试失败）")
         print(f"[llm] 观察生成失败（已尝试 {len(obs_rotation)} 个模型），跳过 LLM 通道")
         return []
 

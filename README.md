@@ -15,7 +15,32 @@
 >
 > 系统输出仅供研究参考，不构成中奖概率与投注建议。**理性购彩，量力而行。**
 
-## 🚀 最近升级概要（v1.0.0 · U1–U7 全量交付）
+## 🚀 最近升级概要（v1.0.1 · U8）
+
+**U8 直击一个线上真实故障**：设置页把模型换成 `agent-router/deepseek-v4-flash` 后，
+「测试连接」通过、但「强制重新生成」报 `HTTP 404: magpie knows no model "group/auto-deepseek-v4-flash-vision"`
+—— 报错里说的是**已经废弃的旧模型**，与真实原因（新模型把整个输出预算花在 `reasoning_content`
+上、`content` 为空）毫无关系。四条修复：
+
+- **设置页保存的模型是唯一事实来源**：保存时**替换**（而非前插）`LLM_MODEL_LIST`，
+  `.env` 里遗留的旧模型不会再混进观察轮轮转，更不会抢占最终报错。
+- **推理型模型输出预算自适应**：检测到「只返回推理内容、无正文」时，一次把输出预算抬到
+  `LOTT_LLM_MAX_TOKENS`（默认 32000）并注入 `thinking:disabled` 重试；成功后**记住该模型可行的预算**
+  （`data/llm_budget.json`），之后的调用直接从大预算起步，不再每次都先被小预算截断一轮。
+- **报错聚合**：观察轮全部模型失败时，报错列出**每个**模型的原因并以主通道（首个）开头，
+  不再只留最后一个模型的错误。
+- **「测试连接」升级为「测试连接与出文」**：不再用"回一句连接成功"的轻量 ping（它会掩盖真实故障），
+  而是直接跑一次贴近真实预测的结构化出文探测，并回报实际使用的输出预算与耗时。
+- **上期开奖回执补全**：除了"你复制的注中了几块"，现在还会列出**上期系统推荐的全部号码**及
+  **每注命中情况**（命中的球高亮、红中 X/6、蓝球 ✓/—、奖级徽标），并给出该期推荐的
+  红球命中均值 / 蓝球命中注数 / 中奖注数 / 合计奖金 / 最好奖级。
+
+> 实测：`agent-router/deepseek-v4-flash` 属重推理模型，单次出文约 30~50s；
+> 完成一次预算适配后，一整轮预测（观察 + 选号）约 75s，请相应放宽 `LOTT_LLM_TOTAL_TIMEOUT`
+> （若仍是默认 75s 会直接判超时）。想要更快可改用不把预算花在 reasoning 上的模型，
+> 例如同网关的 `discovery-api-intern-ai-org/deepseek-v4-flash-0731`（实测 25s 直接出文）。
+
+## 🚀 v1.0.0 升级概要（U1–U7 全量交付）
 
 本版把 v3 升级方案（[docs/UPGRADE_PLAN_v3.md](docs/UPGRADE_PLAN_v3.md)）的 U1–U5 全部落地，
 并新增 U6 推理模型兜底与 **U7「LLM 实际生成注数模式」**——直击"界面太乱"与"LLM 作用不明显"两大痛点。
@@ -194,6 +219,8 @@ set -a && source .env && set +a      # 让 .env 里的环境变量生效（Windo
 | `LOTT_LLM_MODEL_LIST` | 空 | 同一通道多模型，逗号分隔，采样时按模型轮转 |
 | `LOTT_LLM_EXTRA_MODELS` | 空 | 附加独立通道，JSON 数组 `[{"name","base_url","api_key","model"}]` |
 | `LOTT_LLM_SAMPLES` | `3` | LLM 采样轮数（并发） |
+| `LOTT_LLM_MAX_TOKENS` | `32000` | 推理型模型的输出预算上限：检测到「只返回 reasoning、正文为空」时一次抬到该值重试；设 `0` 关闭自适应 |
+| `LOTT_LLM_LONG_TIMEOUT` | `180` | 大输出预算单次调用的宽松超时（秒）；大预算单次就要 30~120s，沿用 `LOTT_LLM_TIMEOUT=60` 会先被判超时 |
 | `LOTT_LLM_DISABLED` | `0` | `1` = 关闭 LLM，仅统计模型 |
 | `LOTT_LLM_ONLY_OUTPUT` | `1` | `1`=LLM 推理时以大模型**实际产出注数**为准、不补齐；`0`=恢复旧的混选补齐 |
 | `LOTT_N_TICKETS` | `10` | 输出注数（LLM-only 模式下为**上限**，不保证补满） |
@@ -301,6 +328,29 @@ Dockerfile / docker-compose.yml
 
 
 ## 版本记录
+
+### v1.0.1（U8：推理型模型适配 + 上期开奖回执补全，2026-10）
+
+**主题**：修掉「测试通过、生成失败」的口径不一致——LLM 通道在换模型后必须**要么出文、要么说清原因**。
+
+- **设置页模型 = 唯一事实来源**：`POST /api/config/llm` 保存模型时把 `LLM_MODEL_LIST`
+  **替换**为新模型（原实现是前插，`.env` 里遗留的 `group/auto-deepseek-v4-flash-vision`
+  会一直留在观察轮轮转列表里）；与 `load_runtime_llm_config` 的既有语义对齐
+- **推理型模型输出预算自适应**：`llm_client.chat` 检测到 `content` 为空且 `reasoning_content`
+  非空时，一次把 `max_tokens` 抬到 `LOTT_LLM_MAX_TOKENS`（默认 32000）+ 注入 `thinking:disabled`
+  重试；成功即把该 (端点, 模型) 的可用预算写入 `data/llm_budget.json` 并在后续调用直接起步；
+  预算已在上限仍无正文时给出可执行报错（指向 `LOTT_LLM_MAX_TOKENS` / 换模型），不再无限放大
+- **大预算宽松超时** `LOTT_LLM_LONG_TIMEOUT`（默认 180s）：大预算单次就要 30~120s，
+  沿用 60s 会先被判读取超时、白白重试一轮
+- **观察轮报错聚合**：报错列出全部模型的原因、以主通道（首个）开头，旧模型的 404 不再掩盖真实原因
+- **`POST /api/llm/test` 改为结构化出文探测**：复用观察轮真实提示与同一套预算逻辑，
+  返回 `max_tokens` / `reasoning_model` / `time_ms`；失败时给出 `hint`
+- **`GET /api/config/llm`** 新增 `model_list` / `max_tokens` / `learned_max_tokens` / `total_timeout` / `verify`
+- **上期开奖回执（U5 扩展）**：`renderWinReceipt` 现在会列出上期系统推荐的全部号码及每注命中
+  （命中球高亮 + 红中 X/6 + 蓝球 ✓/— + 奖级徽标）与汇总（红球命中均值 / 蓝球命中 / 中奖注数 / 合计奖金 / 最好奖级）；
+  没有本机复制记录时也照常显示；顺带修掉"未中奖（红球最多命中 0 红）"里把奖级当成红球数的老 bug
+- **测试**：新增 `tests/test_v3_llm_budget.py`（7 例）；全量 **81 passed**，无回归
+- **版本号**：v1.0.0 → v1.0.1（build `2026-10-U8`），里程碑表新增 U8
 
 ### v1.0.0（v3 方案 U1–U7 全量交付，2026-10）
 

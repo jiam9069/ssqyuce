@@ -66,6 +66,13 @@ curl http://<VPS_IP>:18000/api/health
 
 浏览器打开 `http://<VPS_IP>:18000` 即可使用。
 
+> ⚠️ **改了前端一定要改 `?v=` 版本号**：入口节点对 `/static/` 有 7 天代理缓存
+> （`proxy_cache ssqcache; proxy_cache_valid 200 7d`），浏览器还会按 `max-age=86400` 再缓存一天。
+> `web/static/app.js` / `style.css` 的**内容变更不会自动生效**——必须同步修改
+> `web/index.html` 里 `/static/style.css?v=<日期>.<序号>` 与 `/static/app.js?v=<日期>.<序号>`
+> 的版本号（缓存键含 query，改版本号即换新键），否则用户拿到的仍是旧前端。
+> 只有 `index.html` 本身不缓存，所以只改版本号、无需清入口缓存。
+
 ## 五、防火墙 / 安全组
 
 ```bash

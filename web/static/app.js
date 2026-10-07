@@ -1942,22 +1942,29 @@ async function testLlmConnection() {
   const btn = event.target;
   const resultEl = $("#llmTestResult");
   btn.disabled = true;
-  btn.textContent = "测试中…";
+  btn.textContent = "测试中…（推理型模型可能数十秒）";
   if (resultEl) resultEl.textContent = "";
   try {
     const result = await api("/api/llm/test", {method: "POST"});
     if (result.ok) {
-      if (resultEl) resultEl.innerHTML = '<span class="oktxt">✓ 连接成功（' + result.time_ms + 'ms）</span>';
-      toast("连接成功");
+      const extra = [];
+      if (result.model) extra.push(escHtml(result.model));
+      if (result.max_tokens) extra.push("输出预算 " + result.max_tokens);
+      if (result.reasoning_model) extra.push("推理型（已自动适配）");
+      if (resultEl) resultEl.innerHTML = '<span class="oktxt">✓ 结构化出文正常（' +
+        (result.time_ms / 1000).toFixed(1) + "s" + (extra.length ? " · " + extra.join(" · ") : "") +
+        "）</span>";
+      toast("连接与出文正常（" + (result.time_ms / 1000).toFixed(1) + "s）");
     } else {
-      if (resultEl) resultEl.innerHTML = '<span class="errtxt">✗ ' + (result.error || "连接失败") + '</span>';
+      if (resultEl) resultEl.innerHTML = '<span class="errtxt">✗ ' + escHtml(result.error || "连接失败") +
+        (result.hint ? '<br><span class="hint-inline">' + escHtml(result.hint) + "</span>" : "") + "</span>";
     }
   } catch(e) {
     console.error("testLlmConnection failed:", e);
-    if (resultEl) resultEl.innerHTML = '<span class="errtxt">✗ ' + e.message + '</span>';
+    if (resultEl) resultEl.innerHTML = '<span class="errtxt">✗ ' + escHtml(e.message) + "</span>";
   } finally {
     btn.disabled = false;
-    btn.textContent = "🔗 测试连接";
+    btn.textContent = "🔗 测试连接与出文";
   }
 }
 
@@ -2098,7 +2105,11 @@ function renderTrackRecord(cumulative) {
     '</div>';
 }
 
-// 首页「中奖回执」：你复制的注（localStorage myCopy）对照实际开奖，显示中了几块
+// 首页「上期开奖回执」：
+//   ① 上期系统推荐的每一组号码 + 每注命中情况（红中 X/6 · 蓝 ✓/— · 奖级）
+//   ② 你在本机复制的注（localStorage myCopy）中了几块
+// 数据源：/api/predictions/history（含 issue/date/actual/predictions）；命中本地对照，
+// 与「历史回放」页同一套口径，不依赖后端预计算字段。
 async function renderWinReceipt() {
   const card = $("#winReceiptCard");
   const box = $("#winReceipt");
@@ -2106,46 +2117,104 @@ async function renderWinReceipt() {
   if (!card || !box) return;
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem("myCopy") || "null"); } catch (_) {}
-  if (!saved || !saved.issue || !saved.tickets || !saved.tickets.length) {
-    card.classList.add("hidden");
-    return;
+  let hist = [];
+  try { hist = (await api("/api/predictions/history?limit=50")) || []; } catch (_) { hist = []; }
+
+  // 「上期」= 最近一期「已开奖 且有系统推荐记录」的期号
+  const prev = hist.find(h => h.actual && (h.predictions || []).length);
+  const hasCopy = !!(saved && saved.issue && (saved.tickets || []).length);
+  if (!prev && !hasCopy) { card.classList.add("hidden"); return; }
+
+  const parts = [];
+  let tagText = "";
+  if (prev) {
+    tagText = prev.issue + (prev.date ? " · " + prev.date : "");
+    parts.push(renderReceiptRecommendations(prev));
   }
-  try {
-    const hist = await api("/api/predictions/history?limit=50");
-    const item = (hist || []).find(h => h.issue === saved.issue);
-    if (!item || !item.actual) {
-      // 尚未开奖
-      card.classList.remove("hidden");
-      if (tag) tag.textContent = saved.issue;
-      box.innerHTML = '<div class="receipt-line receipt-lose">期号 ' + escHtml(saved.issue) + ' 尚未开奖，开奖后自动回执。</div>' +
-        '<div class="receipt-note">你复制的 ' + saved.tickets.length + ' 注已记录在本机，开奖后可在此查看是否中奖。</div>';
-      return;
-    }
-    const act = item.actual;
-    const actReds = act.reds || [];
-    const actBlue = act.blue;
-    let winCount = 0, reward = 0, best = 0;
-    saved.tickets.forEach(t => {
-      const rh = (t.reds || []).filter(r => actReds.includes(r)).length;
-      const bh = (t.blue === actBlue) ? 1 : 0;
-      const lvl = localPrizeLevel(rh, bh);
-      if (lvl > 0) { winCount++; reward += (PRIZE_CASH[lvl] || 0); }
-      if (lvl > best) best = lvl;
-    });
-    card.classList.remove("hidden");
-    if (tag) tag.textContent = saved.issue;
-    const actualBalls = actReds.map(r => "<span class='ball red sm'>" + pad2(r) + "</span>").join("") +
-      " <span class='ball blue sm'>" + pad2(actBlue) + "</span>";
-    box.innerHTML =
-      '<div class="receipt-line">实际开奖 <span class="balls" style="display:inline-flex">' + actualBalls + '</span></div>' +
-      (winCount > 0
-        ? '<div class="receipt-line receipt-win">🎉 你复制的 ' + saved.tickets.length + ' 注中，' + winCount + ' 注中奖，共 ¥' + reward.toFixed(0) +
-          (best ? '，最好 ' + (PRIZE_NAME[best] || ("等" + best)) : '') + '。</div>'
-        : '<div class="receipt-line receipt-lose">你复制的 ' + saved.tickets.length + ' 注本期未中奖（红球最多命中 ' + (best || 0) + ' 红）。</div>') +
-      '<div class="receipt-note">双色球每期独立随机，未中奖是常态；请理性投注。</div>';
-  } catch (e) {
-    // 历史接口暂不可用时静默，不阻断首页
+  if (hasCopy) {
+    if (!tagText) tagText = saved.issue;
+    parts.push(renderMyCopyReceipt(saved, hist.find(h => h.issue === saved.issue)));
   }
+  parts.push('<div class="receipt-note">双色球每期独立随机，未中奖是常态；系统不承诺优于随机基线。请理性投注。</div>');
+
+  card.classList.remove("hidden");
+  if (tag) tag.textContent = tagText;
+  box.innerHTML = parts.join("");
+}
+
+// 上期系统推荐的逐注命中明细
+function renderReceiptRecommendations(item) {
+  const act = item.actual || {};
+  const actReds = act.reds || [];
+  const rows = (item.predictions || []).filter(t => t && t.reds && t.reds.length).map(t => {
+    const rh = t.reds.filter(r => actReds.includes(r)).length;
+    const bh = (t.blue === act.blue) ? 1 : 0;
+    const lvl = localPrizeLevel(rh, bh);
+    return { t: t, rh: rh, bh: bh, lvl: lvl, reward: PRIZE_CASH[lvl] || 0 };
+  });
+  if (!rows.length) return "";
+  const n = rows.length;
+  const meanRed = rows.reduce((a, r) => a + r.rh, 0) / n;
+  const nBlue = rows.filter(r => r.bh).length;
+  const winCount = rows.filter(r => r.lvl > 0).length;
+  const reward = rows.reduce((a, r) => a + r.reward, 0);
+  const best = Math.max.apply(null, rows.map(r => r.lvl));
+
+  const actualBalls = actReds.map(r => "<span class='ball red sm'>" + pad2(r) + "</span>").join("") +
+    " <span class='ball blue sm' style='margin-left:6px'>" + pad2(act.blue) + "</span>";
+
+  const tickets = rows.map((r, i) => {
+    const balls = r.t.reds.map(x =>
+      "<span class='ball red sm" + (actReds.includes(x) ? " hit" : "") + "'>" + pad2(x) + "</span>").join("");
+    const blue = "<span class='ball blue sm" + (r.bh ? " hit" : "") + "'>" + pad2(r.t.blue) + "</span>";
+    const badge = r.lvl
+      ? "<span class='prize-badge lv" + r.lvl + "'>" + (PRIZE_NAME[r.lvl] || ("等" + r.lvl)) + " ¥" + r.reward + "</span>"
+      : "<span class='prize-badge none'>未中奖</span>";
+    const method = r.t.method ? "<span class='badge'>" + escHtml(r.t.method) + "</span>" : "";
+    const redCls = r.rh >= 4 ? "var(--gold)" : r.rh >= 2 ? "var(--green)" : "var(--muted)";
+    return "<div class='ticket small replay-ticket'><div class='row1'>" +
+      "<span class='rk'>#" + (i + 1) + "</span>" +
+      "<div class='balls'>" + balls + " " + blue + "</div>" + method +
+      "<span class='meta'>红中 <b style='color:" + redCls + "'>" + r.rh + "</b>/6 · 蓝 " +
+      (r.bh ? "<b style='color:var(--gold)'>✓</b>" : "—") + "</span>" + badge +
+      "</div></div>";
+  }).join("");
+
+  return '<div class="receipt-line">上期实际开奖 <span class="balls" style="display:inline-flex">' +
+      actualBalls + "</span></div>" +
+    '<div class="receipt-line">系统上期推荐 <b>' + n + "</b> 注：红球命中均值 <b>" + fmt(meanRed, 2) +
+      "</b>/6 · 蓝球命中 <b>" + nBlue + "</b>/" + n + " · 中奖 <b>" + winCount + "</b>/" + n +
+      (reward > 0 ? " · 合计 ¥" + reward.toLocaleString() : "") +
+      (best > 0 ? " · 最好 " + (PRIZE_NAME[best] || ("等" + best)) : "") + "</div>" +
+    '<div class="replay-list receipt-list">' + tickets + "</div>";
+}
+
+// 「我复制的注」回执（本机记录）
+function renderMyCopyReceipt(saved, item) {
+  const my = saved.tickets || [];
+  if (!item || !item.actual) {
+    return '<div class="receipt-line receipt-lose">你复制的 ' + my.length + " 注（期号 " +
+      escHtml(saved.issue) + "）尚未开奖，开奖后自动回执。</div>" +
+      '<div class="receipt-note">已记录在本机，开奖后可在此查看是否中奖。</div>';
+  }
+  const act = item.actual;
+  const actReds = act.reds || [];
+  let winCount = 0, reward = 0, best = 0, bestRed = 0;
+  my.forEach(t => {
+    const rh = (t.reds || []).filter(r => actReds.includes(r)).length;
+    const bh = (t.blue === act.blue) ? 1 : 0;
+    const lvl = localPrizeLevel(rh, bh);
+    if (lvl > 0) { winCount++; reward += (PRIZE_CASH[lvl] || 0); }
+    if (lvl > best) best = lvl;
+    if (rh > bestRed) bestRed = rh;
+  });
+  return "<div class='receipt-line receipt-copy-tag'>你的复制注（期号 " + escHtml(saved.issue) + "）：</div>" +
+    (winCount > 0
+      ? '<div class="receipt-line receipt-win">🎉 你复制的 ' + my.length + " 注中，" + winCount +
+        " 注中奖，共 ¥" + reward.toFixed(0) +
+        (best ? "，最好 " + (PRIZE_NAME[best] || ("等" + best)) : "") + "。</div>"
+      : '<div class="receipt-line receipt-lose">你复制的 ' + my.length +
+        " 注本期未中奖（红球最多命中 " + bestRed + " 红）。</div>");
 }
 
 // ==================== 加载 ====================

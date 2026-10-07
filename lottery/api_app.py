@@ -549,12 +549,22 @@ def predictions_history(limit: int = Query(50, ge=1, le=200)):
 
 @app.get("/api/config/llm")
 def get_llm_config():
-    from . import config
+    from . import config, llm_client
+    cur = config.LLM_MODEL or ""
+    learned = None
+    if config.LLM_BASE_URL and cur:
+        learned = llm_client.learned_max_tokens(config.LLM_BASE_URL, cur)
     return {
         "disabled": config.LLM_DISABLED,
         "base_url": config.LLM_BASE_URL,
         "model": config.LLM_MODEL,
+        # 多模型轮转列表（设置页保存的模型是唯一事实来源；附加通道见 extra_models）
+        "model_list": list(config.LLM_MODEL_LIST),
         "samples": config.LLM_SAMPLES,
+        "max_tokens": config.LLM_MAX_TOKENS,
+        "learned_max_tokens": learned,
+        "total_timeout": config.LLM_TOTAL_TIMEOUT,
+        "verify": config.LLM_VERIFY_ENABLED,
         "configured": config.llm_configured(),
     }
 
@@ -572,8 +582,11 @@ def update_llm_config(payload: dict):
     if "model" in payload:
         config.LLM_MODEL = (payload.get("model") or "").strip() or "minimax-m3"
         os.environ["LOTT_LLM_MODEL"] = config.LLM_MODEL
-        if config.LLM_MODEL not in config.LLM_MODEL_LIST:
-            config.LLM_MODEL_LIST = [config.LLM_MODEL] + config.LLM_MODEL_LIST
+        # 设置页保存的模型是唯一事实来源：**替换**（而非前插）模型列表。
+        # 前插会把 .env 里遗留的旧模型留在观察轮轮转列表里——新模型一旦失败，
+        # 旧模型的 404 就成了最终报错，把真实原因（如推理型模型未产出正文）
+        # 彻底掩盖掉。多模型容错请用 LOTT_LLM_EXTRA_MODELS / 附加通道。
+        config.LLM_MODEL_LIST = [config.LLM_MODEL]
     if "samples" in payload:
         try:
             config.LLM_SAMPLES = max(1, min(20, int(payload["samples"])))
@@ -584,46 +597,89 @@ def update_llm_config(payload: dict):
         config.LLM_DISABLED = bool(payload["disabled"])
         os.environ["LOTT_LLM_DISABLED"] = "1" if config.LLM_DISABLED else "0"
 
-    # 持久化到数据目录（挂载卷，容器重启不丢失）
+    # 持久化到数据目录（挂载卷，容器重启不丢失）；保留文件里已有的其它键
+    # （例如手工写入的 extra_body / total_timeout），避免设置页保存时被抹掉。
     config.LLM_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    conf = {
+    conf = {}
+    try:
+        if config.LLM_CONFIG_FILE.exists():
+            existing = json.loads(config.LLM_CONFIG_FILE.read_text(encoding="utf-8"))
+            if isinstance(existing, dict):
+                conf.update(existing)
+    except (ValueError, OSError):
+        pass
+    conf.update({
         "disabled": config.LLM_DISABLED,
         "base_url": config.LLM_BASE_URL or "",
         "api_key": config.LLM_API_KEY or "",
         "model": config.LLM_MODEL or "",
         "samples": config.LLM_SAMPLES,
-    }
+    })
     try:
         config.LLM_CONFIG_FILE.write_text(
             json.dumps(conf, ensure_ascii=False, indent=2), encoding="utf-8")
     except OSError as e:
         return {"ok": False, "error": f"配置写入失败: {e}"}
-    return {"ok": True, "configured": config.llm_configured()}
-
+    return {"ok": True, "configured": config.llm_configured(),
+            "model_list": list(config.LLM_MODEL_LIST)}
 
 
 @app.post("/api/llm/test")
 def test_llm_connection():
-    """用当前配置发起一次最小对话，验证 LLM 通道连通性。"""
+    """用当前配置做一次**贴合真实预测**的结构化出文探测。
+
+    只回一句「连接成功」的轻量 ping 会掩盖真实故障：推理型模型在小请求下能出文，
+    而预测用的长提示会把整个 max_tokens 预算耗在 reasoning_content 上（content
+    为空），于是出现「测试成功、生成失败」。这里直接复用观察轮的真实提示与同一套
+    预算自适应逻辑，并回报实际使用的输出预算与耗时。
+    """
     from . import config, llm_client
     import time
+    from .llm_client import LLMChannelError
     if config.LLM_DISABLED:
         return {"ok": False, "error": "LLM 已停用（在设置中启用后重试）"}
     cfgs = config.llm_model_list()
     if not cfgs:
         return {"ok": False, "error": "LLM 未配置（请先填写 API 地址 / Key / 模型并保存）"}
     cfg = cfgs[0]
+    # 尽量用真实观察轮提示（数据不足时退化为一个小型 JSON 自检）
+    user_prompt = '请只输出 JSON：{"ok": true, "note": "结构化输出自检"}'
+    realistic = False
+    try:
+        from . import engine as E
+        draws = db.load_draws()
+        if len(draws) >= 60:
+            stats = F.compute_features(draws)
+            ctx = E.build_context(draws, stats, db.load_patterns())
+            user_prompt = llm_client.observations_prompt(
+                llm_client.compact_stats(ctx["stats"]), ctx["recent"], ctx["patterns"])
+            realistic = True
+    except Exception as e:  # noqa: BLE001
+        print(f"[llm] 测试探测构建真实提示失败，退化为自检提示: {e}")
     t0 = time.time()
     try:
-        text = llm_client.chat(
-            "你是连接测试助手。", "请只回复：连接成功",
-            max_tokens=50, temperature=0.0, timeout=25, model_cfg=cfg)
-    except Exception as e:  # noqa: BLE001
-        return {"ok": False, "error": f"调用异常: {e}"}
+        res = llm_client.chat_json(
+            llm_client.SYSTEM_BASE, user_prompt, max_tokens=1600, temperature=0.0,
+            timeout=config.LLM_TIMEOUT, model_cfg=cfg, strict=True,
+            deadline=time.time() + max(60.0, config.LLM_TOTAL_TIMEOUT))
+    except LLMChannelError as e:
+        return {"ok": False, "model": cfg.get("model"), "realistic": realistic,
+                "time_ms": int((time.time() - t0) * 1000), "error": str(e),
+                "hint": ("若提示「只返回推理内容」，说明该模型把输出预算全花在 reasoning 上："
+                         f"可调大 LOTT_LLM_MAX_TOKENS（当前 {config.LLM_MAX_TOKENS}），"
+                         "或改用不这样做的模型（例如 discovery-api-intern-ai-org/deepseek-v4-flash-0731）")}
     dt_ms = int((time.time() - t0) * 1000)
-    if text:
-        return {"ok": True, "time_ms": dt_ms, "reply": text.strip()[:100]}
-    return {"ok": False, "error": "模型无返回（请检查 API 地址 / Key / 模型名）"}
+    learned = llm_client.learned_max_tokens(cfg["base_url"], cfg["model"])
+    if not res:
+        return {"ok": False, "model": cfg.get("model"), "realistic": realistic,
+                "time_ms": dt_ms,
+                "error": "模型有返回但无法解析为 JSON（请检查模型是否遵循 JSON 输出要求）"}
+    keys = list(res.keys())[:6] if isinstance(res, dict) else []
+    return {"ok": True, "model": cfg.get("model"), "realistic": realistic,
+            "time_ms": dt_ms, "max_tokens": learned or 1600,
+            "reasoning_model": bool(learned and learned > 1600),
+            "json_keys": keys,
+            "reply": json.dumps(res, ensure_ascii=False)[:160]}
 
 
 # ---------- M4.2 方法 A/B 开关（Web 设置页配置，写入 data/methods_config.json） ----------

@@ -23,8 +23,8 @@ BACKUP_DATA_URL = (os.environ.get("LOTT_BACKUP_DATA_URL") or "").strip() or None
 
 # ---------- 版本信息（前端主页 / API / GitHub 说明统一引用） ----------
 
-APP_VERSION = "1.0.0"          # v3 方案 U1–U6 全量交付：极简预测首页 / 蓝球专项 / 自适应降权与 LLM 角色重定位 / 覆盖优化 / 复盘跟买 / LLM 实际注数模式
-APP_BUILD = "2026-10-U6"       # 构建标识（U1–U6 交付批次）
+APP_VERSION = "1.0.1"          # v3 方案 U1–U8：U8 = 推理型模型输出预算自适应 + 设置页模型唯一事实来源 + 上期开奖回执补全
+APP_BUILD = "2026-10-U8"       # 构建标识（U8 交付批次）
 APP_MILESTONES = {
     "M1": {"status": "done",    "desc": "前端 Tab 工作台 + 规律库扩容 29 条 + 自动挖掘管道 + 任务系统"},
     "M2": {"status": "done",    "desc": "GBDT/RF 概率模型 + 滚动 Brier 加权融合 + 概率校准 + 蓝球独立投票 + ML walk-forward 评估"},
@@ -38,6 +38,7 @@ APP_MILESTONES = {
     "U5": {"status": "done", "desc": "单注复盘战绩卡 + 跟我买一键选注 + 中奖回执闭环"},
     "U6": {"status": "done", "desc": "推理型模型自动关闭思考兜底（reasoning_content 非空时注入 thinking:disabled 重试）"},
     "U7": {"status": "done", "desc": "LLM 实际生成注数模式：以大模型真实产出注数为准，不再用统计/ML 候选补齐"},
+    "U8": {"status": "done", "desc": "推理型模型输出预算自适应（含预算记忆）+ 设置页模型唯一事实来源 + 观察轮报错聚合 + 上期开奖回执列出上期推荐逐注命中"},
 }
 
 # ---------- LLM 通道（全部来自环境变量，无仓库内置密钥/地址） ----------
@@ -72,6 +73,17 @@ N_TICKETS = int(os.environ.get("LOTT_N_TICKETS", "10"))             # 最终输�
 # LLM”的口径不一致。设 0 恢复旧的“候选池混选 + 补齐到 N_TICKETS”行为。
 LLM_ONLY_OUTPUT = os.environ.get("LOTT_LLM_ONLY_OUTPUT", "1") == "1"
 LLM_TIMEOUT = float(os.environ.get("LOTT_LLM_TIMEOUT", "60"))
+# 大输出预算（推理型模型）单次调用的宽松超时：预算抬到上限后单次要跑 40~120s，
+# 仍用 60s 会先被判读取超时而白白重试一次。
+LLM_LONG_TIMEOUT = float(os.environ.get("LOTT_LLM_LONG_TIMEOUT", "180"))
+# 推理型模型（如 deepseek-v4-flash / glm-5.3 等）会把 max_tokens 全部耗在
+# reasoning_content 上，content 为空且 finish_reason=length。此时按需把输出预算
+# 抬到本上限再重试一次（两次都能被 deadline 钳制）。
+# 默认 32000：实测 agent-router/deepseek-v4-flash 需要 ≥3 万输出预算才吐出正文。
+LLM_MAX_TOKENS = int(os.environ.get("LOTT_LLM_MAX_TOKENS", "32000"))
+# 学到的「每个模型可用输出预算」持久化文件（首次探测成功后记住，避免每次预测
+# 都从被截断的小预算重试）。键为 "<base_url>|<model>"。
+LLM_BUDGET_FILE = DATA_DIR / "llm_budget.json"
 # M4.5 快速失败：单次预测 LLM 阶段（观察+选号+校验全部轮次）的墙钟预算（秒）。
 # 默认 75s：加统计部分约 5s 后仍在 Cloudflare 100s 代理超时之内，避免 HTTP 524。
 # 超预算即判定“大模型超时”，Web 预测直接失败提示，不再降级为纯统计。

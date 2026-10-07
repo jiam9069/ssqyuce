@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>双色球智能预测分析系统</title>
-<link rel="stylesheet" href="/static/style.css?v=20261005.1">
+<link rel="stylesheet" href="/static/style.css?v=20261007.1">
 <!-- ECharts CDN + 本地 fallback -->
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
   onerror="this.src='/static/vendor/echarts.min.js?v=20260817.7'"></script>
@@ -88,7 +88,7 @@
           <div id="diagResult"></div>
         </div>
 
-        <!-- 中奖回执（U5）：你复制的注是否中奖 -->
+        <!-- 上期开奖回执（U5/U8）：上期系统推荐的每组号码及每注命中 + 你复制的注是否中奖 -->
         <div class="card hidden" id="winReceiptCard">
           <h2>🎫 上期开奖回执 <span class="tag" id="winReceiptTag"></span></h2>
           <div id="winReceipt"></div>
@@ -379,9 +379,11 @@
 
                 <div class="settings-actions">
                   <button onclick="saveLlmConfig()" class="primary">💾 保存配置</button>
-                  <button onclick="testLlmConnection()" class="ghost">🔗 测试连接</button>
+                  <button onclick="testLlmConnection()" class="ghost">🔗 测试连接与出文</button>
                   <span id="llmTestResult" class="test-result"></span>
                 </div>
+                <p class="field-hint">测试会跑一次贴近真实预测的结构化出文探测（推理型模型较慢，
+                  可能数十秒）；只回一句「连接成功」的轻量 ping 会掩盖「测试通过、生成失败」。</p>
 
                 <div id="llmConfigStatus" class="config-status"></div>
               </div>
@@ -451,7 +453,7 @@
   </aside>
 
   
-      <footer>双色球智能预测分析系统 <span class="badge badge-ver" id="verText">v1.0.0</span>（M1-M5 + U1-U7 已上线）· 仅供研究参考 · 随机性诚实声明 · 数据源 e.17500.cn</footer>
+      <footer>双色球智能预测分析系统 <span class="badge badge-ver" id="verText">v1.0.1</span>（M1-M5 + U1-U8 已上线）· 仅供研究参考 · 随机性诚实声明 · 数据源 e.17500.cn</footer>
 </div>
 
 <!-- 号码详情弹窗（全局：任意 Tab 均可触发） -->
@@ -466,6 +468,6 @@
 </div>
 
 <div id="toast"></div>
-<script src="/static/app.js?v=20261005.1"></script>
+<script src="/static/app.js?v=20261007.1"></script>
 </body>
 </html>
