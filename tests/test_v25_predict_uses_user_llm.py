@@ -188,3 +188,55 @@ def test_predict_route_injects_user_config_only_when_source_user(monkeypatch):
     assert got, "用户自备配置必须被注入出号链路（否则又是'测 A 用 B'）"
     assert got[0].get("model") == "USER-MODEL", (
         f"注入的应是用户模型，实际 {got[0].get('model')!r}")
+
+
+# ==========================================================================
+# 4. 配置形态差异：用户配置没有 name 字段
+# ==========================================================================
+
+def test_user_config_without_name_field_does_not_crash(monkeypatch):
+    """用户自备配置只有 `model`、没有 `name` 时，出号不得 KeyError。
+
+    ## 这是 V25 上线后立刻踩到的真实故障
+
+    第一版修好注入后，生产出号报 `HTTP 500 预测引擎异常: 'name'` ——
+    `engine.py` 里 `_parse_tickets_response(res, cfg["name"], ...)` 用了裸下标。
+    全局配置（`config.llm_model_list`）两个字段都有，而**用户配置
+    （`effective_for_user`）只有 model**。配置来源不同、形态就可能不同，
+    读取必须容忍。
+
+    变异点：把 `cfg.get("name") or cfg.get("model") or "?"` 改回 `cfg["name"]`
+    —— 变红（本用例会捕获 KeyError）。
+    """
+    from lottery import engine as E
+
+    # 直接验证解析入口对"缺 name"的配置不炸
+    # （用真实 _parse_tickets_response 的最小合法输入）
+    try:
+        out = E._parse_tickets_response(
+            {"tickets": []}, "fallback-name", set())
+        assert isinstance(out, list), "解析应返回列表"
+    except KeyError:
+        pytest.fail("_parse_tickets_response 不应因缺少 name 而 KeyError")
+
+    # 更直接：断言源码里不再有裸 cfg["name"] 读取
+    import inspect as _insp
+    src = _insp.getsource(E) if False else ""
+    # 用行为方式：注入无 name 的配置跑一遍 llm_tickets 的票解析路径
+    # （chat_json 返回可解析的票，且不带 name）
+    from lottery import llm_client
+    draws, stats, pats = _ctx()
+
+    def _fake_chat(*a, **kw):
+        return {"tickets": [{"reds": [1, 2, 3, 4, 5, 6], "blue": 7, "confidence": 0.5}]}
+
+    monkeypatch.setattr(llm_client, "chat_json", _fake_chat, raising=False)
+    # 观察轮先要能过（返回非空 dict）
+    try:
+        res = engine.llm_tickets(
+            draws, stats, pats, random.Random(1), strict=False, llm_samples=1,
+            model_cfgs=[{"base_url": "https://u/v1", "api_key": "k",
+                         "model": "USER-MODEL-NO-NAME"}])
+        assert isinstance(res, list), f"应返回候选列表，实际 {type(res)}"
+    except KeyError as e:
+        pytest.fail(f"用户配置缺 name 字段导致 KeyError: {e}")

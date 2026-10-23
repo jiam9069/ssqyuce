@@ -353,7 +353,13 @@ def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
             max_tokens=2000, temperature=0.9, model_cfg=cfg,
             deadline=deadline, strict=strict,
         )
-        return _parse_tickets_response(res, cfg["name"], _known_patterns)
+        # `name` 与 `model` 是两种配置形态：全局配置（config.llm_model_list）
+        # 两个都有，而**用户自备配置**（user_llm_store.effective_for_user）
+        # 只有 model。V25 第一版在这里用 `cfg["name"]` 直接 KeyError，
+        # 让"出号走用户通道"这个修复一上线就 500（实测 `预测引擎异常: 'name'`）。
+        # 配置来源不同、形态就可能不同 —— 读取必须容忍，不能假定。
+        return _parse_tickets_response(
+            res, cfg.get("name") or cfg.get("model") or "?", _known_patterns)
 
     n_samples = int(llm_samples) if llm_samples else config.LLM_SAMPLES
     calls = [model_cfgs[i % n_models] for i in range(n_samples)]
