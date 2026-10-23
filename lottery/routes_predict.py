@@ -186,6 +186,28 @@ def strict_mode_gates(draws, issue):
               "L2 是最后的兜底凭据，它都不可用说明历史数据不足或异常。"
               "请确认历史数据齐全，或关闭严格模式（LOTT_STRICT_MODE=0）走纯统计通道。")))
 
+    # ①-c V28：**逐注** L2 校验（此前只校验了 ctx 字段齐全，没校验票本身）
+    #
+    # ## 为什么补这一条（2026-10-23 生产实证）
+    #
+    # issue=2026122 手动生成的 5 注里，seq=4 `[1,6,14,22,30,32]` 的
+    # `check_shape()` 返回 **False** —— 奇数个数=1，而 `odd_range=[2,3,4]`。
+    #
+    # 根因不是约束算错，而是**从来没有校验过票**：
+    #   · `strict_mode_gates` 只检查 `shape_constraint_ctx()` 的 7 个必需键在不在；
+    #   · `engine.llm_tickets` 里的 `ctx` 是**提示词上下文**（`build_context`），
+    #     与结构约束无关；
+    #   · 统计通道天然合规（`sample_stat_ticket` 内部按 ctx 采样），
+    #     所以这个洞只在 LLM 通道暴露 —— 它吐的是自由文本号码串。
+    #
+    # 但 V18 对用户的承诺是「任何人拿发过的票重跑 check_shape() 就能验证」。
+    # 票不合规时这个承诺就是假的，而 L2 兜底的全部价值就在于"可逐注复核"。
+    #
+    # ## 判据
+    #
+    # 这里只看**约束上下文是否可用**。票本身的逐注校验发生在出号之后
+    # （`_verify_tickets_l2`），因为出号前还没有票。
+    #
     # ② LLM 通道必须可用
     _ch = _METH.resolve_channels()
     if not bool(_ch.get("llm_can_pick")):
@@ -196,6 +218,71 @@ def strict_mode_gates(draws, issue):
               "是否可用。")))
 
     return _errs
+
+
+def verify_tickets_l2(tickets: List[Dict], draws) -> Dict:
+    """**逐注** L2 结构校验（V28）——门控承诺的兑现环节。
+
+    返回::
+
+        {"ok": bool,                    # 全部注都合规才 True
+         "n": int, "n_bad": int,
+         "bad": [{"seq": i, "reds": [...], "violations": [...]}],
+         "note_zh": str}
+
+    ## 为什么单独成一个函数
+
+    ① **可单测**：不需要跑整条出号链路就能验证判据；
+    ② **路由与调度器共用**：后台 `_scheduler_step` 直接调 `engine.predict_next()`，
+       绕过 `/api/predict` 的门控（V16 踩过这个坑）。票级校验必须在**同一个函数**
+       里，否则双口径。
+    ③ **不丢弃、只标记**：丢弃不合规票会让 LLM 票悄悄变成 0 注，
+       与 V16 修的「静默降级」同类。这里返回清单，由调用方决定拒绝还是降级。
+
+    ## 与 `strict_evidence_basis` 的分工
+
+    `strict_evidence_basis` 回答「凭据是什么」（L1 还是 L2，出号**前**）；
+    本函数回答「发出去的票是否真的满足 L2」（出号**后**）。
+    两者缺一，V18 的「可逐注复核」就只是口号。
+    """
+    rows = list(tickets or [])
+    out: Dict = {"ok": True, "n": len(rows), "n_bad": 0, "bad": [],
+                 "note_zh": ""}
+    if not rows:
+        out["ok"] = False
+        out["note_zh"] = "没有票可校验（出号阶段已失败）"
+        return out
+    from . import shape_rules as _SR
+    try:
+        _ctx = _SR.shape_constraint_ctx(draws)
+    except Exception as exc:          # noqa: BLE001
+        out["ok"] = False
+        out["note_zh"] = (
+            f"L2 约束上下文无法生成（{type(exc).__name__}），无法逐注复核；"
+            f"请确认历史数据齐全后重试，或关闭严格模式（LOTT_STRICT_MODE=0）。")
+        return out
+
+    for i, t in enumerate(rows, 1):
+        reds = sorted(int(x) for x in (t.get("reds") or []))
+        viol = _SR.explain_shape(reds, _ctx)
+        if viol:
+            out["bad"].append({"seq": i, "reds": reds,
+                               "method": t.get("method"),
+                               "violations": viol})
+    out["n_bad"] = len(out["bad"])
+    out["ok"] = (out["n_bad"] == 0)
+    if out["n_bad"]:
+        first = out["bad"][0]
+        out["note_zh"] = (
+            f"{out['n_bad']}/{out['n']} 注不满足 L2 结构约束"
+            f"（首例 第{first['seq']}注 {first['reds']}："
+            f"{'；'.join(first['violations'])}）。"
+            f"L2 的价值在于可逐注复核，不合规的注不应计为『有结构凭据』。")
+    else:
+        out["note_zh"] = (
+            f"全部 {out['n']} 注满足 L2 结构约束（和值/跨度/三区/奇偶/连号），"
+            f"任何人可用 check_shape() 复核。注意：L2 通过不代表存在可预测下期的规律。")
+    return out
 
 
 def strict_evidence_basis(draws) -> Dict:
@@ -527,6 +614,60 @@ def predict(use_llm: Optional[bool] = None,
         res["evidence_note_zh"] = _ev["note_zh"]
         res["evidence_l1_replayable"] = _ev["n_replayable"]
         res["evidence_l2_ok"] = _ev["l2_ok"]
+    # ===== V28：**逐注** L2 校验（严格模式承诺的兑现环节）=====
+    #
+    # V18 把门控依据改成 L2 并承诺「任何人拿发过的票重跑 check_shape() 就能验证」。
+    # 但 2026-10-23 核查发现 issue=2026122 seq=4 直接返回 False —— 门控只校验了
+    # 约束上下文齐不齐，**从没校验过票本身**。统计通道天然合规（采样器内建 ctx），
+    # 只有 LLM 通道暴露了这个洞。
+    #
+    # 判据（与 strict_mode_gates 同一纪律：「没有可逐注复核的凭据就不出号」）：
+    #   · 非严格模式：只**标记**不合规注，不拒绝（用户要的是能买到的号，
+    #     且已明确告知证据等级为 stat / 无门控承诺）；
+    #   · 严格模式：只要有 1 注不合规 → **整批拒绝**（422 + can_fallback），
+    #     因为严格模式的全部价值就是「这批票每一注都能被复核」。
+    #     拒绝时用户仍可选择降级统计模式（V16 的 allow_stat_fallback 语义不变）。
+    try:
+        _l2v = verify_tickets_l2(res.get("tickets") or [], draws)
+    except Exception as e:      # noqa: BLE001
+        _l2v = {"ok": False, "n": len(res.get("tickets") or []), "n_bad": -1,
+                "bad": [],
+                "note_zh": f"L2 逐注校验自身出错（{type(e).__name__}），无法确认票单可复核。"}
+    res["l2_ticket_check"] = {
+        "ok": _l2v["ok"],
+        "n_tickets": _l2v["n"],
+        "n_violating": _l2v["n_bad"],
+        "violations": _l2v["bad"],
+        "note_zh": _l2v["note_zh"],
+    }
+    # ⚠️ 只对**非空票单**做拒绝判定。
+    #
+    # 空票单（n=0）意味着出号阶段本身没产出票 —— 那是另一种失败，已在别处
+    # 报错（`predict_next` 返回空 tickets 时会走"无候选"路径）。
+    # 若这里把「0 注 / 0 违规」也判成 L2 未通过，会让用户看到
+    # 「0/0 注不满足结构约束（第?注 []：）」这种自相矛盾的文案，
+    # 而且掩盖真正的失败原因（vacuous truth 陷阱）。
+    _l2_reject = (not _l2v["ok"]) and int(_l2v["n"]) > 0
+    if _strict_active and _fallback_info is None and _l2_reject:
+        _bad = _l2v["bad"]
+        _first = _bad[0] if _bad else {}
+        return JSONResponse(
+            {"ok": False,
+             "error": (f"严格模式下不出号：**L2 逐注校验未通过** —— "
+                       f"{_l2v['n_bad']}/{_l2v['n']} 注不满足结构约束"
+                       f"（第{_first.get('seq', '?')}注 {_first.get('reds', [])}："
+                       f"{'；'.join(_first.get('violations', []))}）。"
+                       f"严格模式的承诺是「每一注都能被 check_shape() 复核」，"
+                       f"不合规的票不能计入凭据。可重试生成新一批，"
+                       f"或改用统计模式（勾选后重试 / allow_stat_fallback=1）。"),
+             "reason": "l2_ticket_violation",
+             "l2_ticket_check": res["l2_ticket_check"],
+             "can_fallback": True,
+             "fallback_hint_zh": (
+                 "统计通道在采样阶段就按同一套 ctx 约束生成，天然合规；"
+                 "LLM 通道产出的票才可能违规。若反复出现，可考虑临时关闭 LLM 通道。"),
+             },
+            status_code=422)
     if _decision_disabled:
         res["decision_channel_note_zh"] = (
             "LLM 决策通道已被自动关停（决策技能 Wilson 下界 ≤ 随机基线 0.5），"

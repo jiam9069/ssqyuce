@@ -184,13 +184,36 @@ def _sanitize_patterns_used(raw, known: Optional[Iterable[str]] = None) -> Dict[
 
 
 def _parse_tickets_response(res: Optional[dict], method_name: str,
-                            known_patterns: Optional[Iterable[str]] = None) -> List[Dict]:
+                            known_patterns: Optional[Iterable[str]] = None,
+                            shape_ctx: Optional[Dict] = None) -> List[Dict]:
     """校验并规范化 LLM 返回的 tickets（含 evidence / counter_evidence / structure_scores）。
 
     `known_patterns`（V14-A4）是当前真实可用的规律名白名单；
     ``patterns_used`` 里不在白名单内的引用会被丢弃并记入
     ``patterns_used_dropped``，不再原样透传到前端当作"证据"。
+
+    ## V28：逐注 L2 结构校验（`shape_ctx`）
+
+    V18 把严格模式的门控依据改成 L2 结构约束，并承诺「任何人拿发过的票重跑
+    `check_shape()` 就能验证」。但 2026-10-23 生产核查发现：
+
+        issue=2026122 seq=4  [1,6,14,22,30,32]  → check_shape() = False
+        原因：奇数个数=1，而 odd_range=[2,3,4]
+
+    **根因**：门控只校验了 `shape_constraint_ctx()` 的**字段齐全**（7 个必需键在），
+    从没校验过**发出去的票本身**。统计通道天然合规（`sample_stat_ticket` 内部
+    按 ctx 采样），只有 LLM 通道漏了 —— 它吐的是自由文本号码串，不经过采样器。
+
+    现在：`shape_ctx` 给定时逐注校验，**不丢弃**违规票（丢弃会让 LLM 票悄悄变成
+    0 注，与 V16 修的「静默降级」同类），而是在每注上标记：
+
+        l2_ok: bool                 该注是否满足 L2 结构约束
+        l2_violations: List[str]    违反的具体维度（人读，如 "odd_count=1 不在 [2,3,4]"）
+
+    门控（`routes_predict`）看到任何一注 `l2_ok=False` 即可据此拒绝整批 ——
+    「没有可逐注复核的凭据就不出号」才是 L2 兜底的真实含义。
     """
+    from . import shape_rules as _SR
     out: List[Dict] = []
     if not res or not isinstance(res.get("tickets"), list):
         return out
@@ -204,8 +227,16 @@ def _parse_tickets_response(res: Optional[dict], method_name: str,
             if not 1 <= blue <= B_MAX:
                 continue
             pat = _sanitize_patterns_used(t.get("patterns_used"), known_patterns)
+            # V28：逐注 L2 校验（不丢弃，只标记 —— 丢弃=静默降级）
+            _l2_ok: Optional[bool] = None
+            _l2_viol: List[str] = []
+            if shape_ctx is not None:
+                _l2_ok = bool(_SR.check_shape(reds, shape_ctx))
+                if not _l2_ok:
+                    _l2_viol = _SR.explain_shape(reds, shape_ctx)
             out.append({
                 "reds": reds, "blue": blue, "method": f"llm:{method_name}",
+                "l2_ok": _l2_ok, "l2_violations": _l2_viol,
                 "confidence": conf,
                 "reasoning": str(t.get("reasoning", ""))[:300],
                 "patterns_used": pat["kept"],
@@ -237,7 +268,8 @@ def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
                 strict: bool = False,
                 red_probs: Optional[np.ndarray] = None,
                 blue_probs: Optional[np.ndarray] = None,
-                model_cfgs: Optional[List[Dict]] = None) -> List[Dict]:
+                model_cfgs: Optional[List[Dict]] = None,
+                shape_ctx: Optional[Dict] = None) -> List[Dict]:
     """多模型 LLM 采样生成候选（U3 角色重定位：组合结构优化，非自由猜号）。
 
     red_probs/blue_probs: 统计/ML 的 33/16 维概率分布，供 LLM 在硬约束下挑选
@@ -349,7 +381,8 @@ def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
                 feedback=ctx.get("feedback"),
                 red_probs=red_probs.tolist() if red_probs is not None else None,
                 blue_probs=blue_probs.tolist() if blue_probs is not None else None,
-                regime_rules=ctx.get("regime_rules")),
+                regime_rules=ctx.get("regime_rules"),
+                shape_ctx=shape_ctx),
             max_tokens=2000, temperature=0.9, model_cfg=cfg,
             deadline=deadline, strict=strict,
         )
@@ -359,7 +392,8 @@ def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
         # 让"出号走用户通道"这个修复一上线就 500（实测 `预测引擎异常: 'name'`）。
         # 配置来源不同、形态就可能不同 —— 读取必须容忍，不能假定。
         return _parse_tickets_response(
-            res, cfg.get("name") or cfg.get("model") or "?", _known_patterns)
+            res, cfg.get("name") or cfg.get("model") or "?",
+            _known_patterns, shape_ctx)
 
     n_samples = int(llm_samples) if llm_samples else config.LLM_SAMPLES
     calls = [model_cfgs[i % n_models] for i in range(n_samples)]
@@ -417,7 +451,7 @@ def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
                         max_tokens=2000, temperature=0.2, model_cfg=vcfg,
                         deadline=deadline, strict=False)
                     parsed = _parse_tickets_response(refined, vcfg.get("model", "verify"),
-                                                    _known_patterns)
+                                                    _known_patterns, shape_ctx)
                     if parsed:
                         tickets = parsed
                         print(f"[llm] 第三轮校验已修正选号（{len(parsed)} 注，校验模型 {vcfg.get('model')}）")
@@ -773,7 +807,7 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
                                     llm_verify=llm_verify,
                                     deadline=llm_deadline, strict=True,
                                     red_probs=red_blend, blue_probs=blue_blend,
-                                    model_cfgs=llm_model_cfgs)
+                                    model_cfgs=llm_model_cfgs, shape_ctx=ctx)
             if not llm_cands:
                 raise LLMChannelError("LLM 选号轮未返回任何有效候选（模型输出不可解析）")
         else:
@@ -782,7 +816,7 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
                                         llm_samples=llm_samples,
                                         llm_verify=llm_verify,
                                         red_probs=red_blend, blue_probs=blue_blend,
-                                        model_cfgs=llm_model_cfgs)
+                                        model_cfgs=llm_model_cfgs, shape_ctx=ctx)
             except Exception as e:  # noqa: BLE001
                 print(f"[engine] LLM 通道异常，降级为纯统计: {e}")
                 llm_cands = []
@@ -985,9 +1019,18 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
             "C": sum(1 for p in patterns if p["grade"] == "C"),
         },
         "ml": _ml_result_block(ml_entry, use_ml, ml_extra),
-        # V12-13（V10 §2.1.6 冻结清单的 "ai_audit"）：predict_next **只读**最近一次
-        # 判定，绝不在预测请求里等 LLM。失败/无记录 → None（状态判定不受影响）。
-        "ai_audit": _latest_audit_digest(),
+        # ===== V28：`ai_audit` 从响应里移除（它永远是 None）=====
+        #
+        # V12-13 设了这个字段，本意是「读最近一次 AI 核对判定」。但 8 个版本下来：
+        #   · `llm_audit` 表 **0 行**；
+        #   · 唯一的写入路径 `ai_audit.save_audit()` **没有任何调用点**；
+        #   · 唯一的触发器 `POST /api/llm/audit/run` 前端从未调用过。
+        # 所以这个字段自诞生起就是恒定 `None` —— 它让响应看起来"有 AI 核对机制"，
+        # 实际上什么都没有。这正是本项目最反对的**假承诺**。
+        #
+        # V28 直接不返回该字段（前端本来也没有渲染它，计数为 0）。
+        # 审计模块本身保留（`/api/llm/audit/run` 仍可用，需要时手动触发并落库），
+        # 只是不再在每期预测响应里挂一个恒空的占位。
         "note": ((f"已叠加 {len(_rule_info.get('usable_rules') or [])} 条通过阶段验证的规律"
                   if _rule_info.get("usable_rules") else
                   "样本外回测未发现稳定显著的规律，预测仅基于统计结构的均衡建议")

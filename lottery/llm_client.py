@@ -759,7 +759,8 @@ def tickets_prompt(stats_json: dict, recent: list, patterns: list, observations:
                      feedback: Optional[dict] = None,
                      red_probs: Optional[list] = None,
                      blue_probs: Optional[list] = None,
-                     regime_rules: Optional[list] = None) -> str:
+                     regime_rules: Optional[list] = None,
+                     shape_ctx: Optional[dict] = None) -> str:
     """第 2 轮：组合结构优化（U3 LLM 角色重定位）。
 
     双色球独立随机，LLM 不再“自由猜测号码”。给定统计模型/ML 的 33/16 维概率
@@ -774,6 +775,27 @@ def tickets_prompt(stats_json: dict, recent: list, patterns: list, observations:
         top = ranked[:15]
         red_hint = ("## 统计/ML 红球概率分布 Top15\n"
                     + json.dumps([(n, round(p, 4)) for n, p in top], ensure_ascii=False) + "\n")
+    # V28：把 L2 约束**明确写进提示词**。
+    #
+    # 为什么必须写：2026-10-23 生产核查发现 LLM 产出的 seq=4 `[1,6,14,22,30,32]`
+    # 奇数个数=1，而 odd_range=[2,3,4] —— 不合规。此前提示词只说"结构均衡"，
+    # 没有把可校验的具体阈值给它，模型只能猜。
+    # 现在把阈值**原样**列出来（与 shape_rules.check_shape 同一份 ctx），
+    # 让模型有明确目标；即使它仍不合规，解析层也会逐注标记（不是丢弃）。
+    shape_hint = ""
+    if shape_ctx:
+        _zones = shape_ctx.get("top_zones") or []
+        _zones_txt = "、".join("-".join(str(x) for x in z) for z in _zones[:6])
+        _odd = shape_ctx.get("odd_range") or []
+        shape_hint = (
+            "## 必须满足的结构硬约束（任何一注不含规都会被标记）\n"
+            f"- 红球和值 ∈ [{shape_ctx.get('sum_min', 0):.0f}, {shape_ctx.get('sum_max', 0):.0f}]\n"
+            f"- 跨度（最大−最小） ∈ [{shape_ctx.get('span_min', 0):.0f}, {shape_ctx.get('span_max', 0):.0f}]\n"
+            f"- 三区比（1-11/12-22/23-33）必须是以下之一：{_zones_txt}\n"
+            f"- 奇数个数 ∈ {list(_odd)}\n"
+            f"- 连号组数 ≤ {shape_ctx.get('max_consecutive', 2)}\n"
+        )
+
     return (
         "你是双色球组合结构优化器。双色球为独立随机事件，**不要试图‘猜中’号码**，"
         "你的职责是在给定概率分布与硬约束下，产出**结构上均衡**、**红球覆盖尽量分散**的候选组合。\n"
@@ -785,6 +807,7 @@ def tickets_prompt(stats_json: dict, recent: list, patterns: list, observations:
            f"{json.dumps(regime_rules, ensure_ascii=False)}\n" if regime_rules else "")
         + f"## 你的观察\n{json.dumps(observations, ensure_ascii=False)}\n"
         + red_hint
+        + shape_hint
         + fb
         + f"请生成 {config.TICKETS_PER_LLM_CALL} 注候选，输出形如：\n"
         '{"tickets": [{"reds": [6个1-33不重复升序整数], "blue": 1个1-16整数(仅供结构示意，实际由专用蓝球模型决定), '

@@ -101,9 +101,16 @@ def test_migration_8_rebuilds_primary_keys(env):
 
 
 def test_migration_creates_new_tables(env):
+    """迁移必须建出多租户相关的表。
+
+    V28：`issue_baseline` 已从断言中移除 —— 那张表自创建起 8 个版本**从未被写入**
+    （全仓库无写入方、无读取方），V28 把它删了并令迁移 7 变为 no-op。
+    留着断言会逼着保留一张永远为空的表，那是假承诺。
+    """
     names = {r[0] for r in db.get_conn().execute(
         "SELECT name FROM sqlite_master WHERE type='table'")}
-    assert {"user_llm_config", "issue_baseline"} <= names
+    assert "user_llm_config" in names
+    assert "issue_baseline" not in names, "V28 已删除该表（从未被写入）"
 
 
 def test_migration_is_idempotent(env):

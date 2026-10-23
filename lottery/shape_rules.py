@@ -281,6 +281,45 @@ def check_shape(reds: Sequence[int], ctx: Dict) -> bool:
     return True
 
 
+def explain_shape(reds: Sequence[int], ctx: Dict) -> List[str]:
+    """逐条说明该注违反了哪些 L2 约束（人读文本，用于前端与报告）。
+
+    `check_shape` 只给 bool —— 但「不合规」若不说清楚是哪一条，用户无法判断
+    该不该信、也不知道该改哪。V28 起每条违规都要能翻译成一句话。
+
+    返回值顺序固定（和值→跨度→三区→奇偶→连号），空列表表示全部合规。
+    与 `check_shape` **必须同源**：`check_shape(r,ctx) == (explain_shape(r,ctx) == [])`
+    （`tests/test_v28_llm_l2_gate.py` 有对应用例，双向核对）。
+    """
+    rs = list(reds)
+    if len(rs) != 6:
+        return [f"需要 6 个红球，实际 {len(rs)} 个"]
+    out: List[str] = []
+    s = sum(rs)
+    lo, hi = ctx.get("sum_min", -1e9), ctx.get("sum_max", 1e9)
+    if not (lo <= s <= hi):
+        out.append(f"和值={s} 不在 [{lo:.0f}, {hi:.0f}]")
+    sp = max(rs) - min(rs)
+    lo2, hi2 = ctx.get("span_min", -1e9), ctx.get("span_max", 1e9)
+    if not (lo2 <= sp <= hi2):
+        out.append(f"跨度={sp} 不在 [{lo2:.0f}, {hi2:.0f}]")
+    z1 = sum(1 for r in rs if r <= 11)
+    z2 = sum(1 for r in rs if 12 <= r <= 22)
+    z3 = 6 - z1 - z2
+    if (z1, z2, z3) not in ctx.get("top_zones", [(1, 3, 2)]):
+        allowed = sorted(ctx.get("top_zones") or [])
+        shown = "、".join("".join(map(str, z)) for z in allowed[:5])
+        out.append(f"三区比={z1}-{z2}-{z3} 不在常见集合（如 {shown}…）")
+    odd = sum(1 for r in rs if r % 2 == 1)
+    rng = ctx.get("odd_range", [2, 3, 4])
+    if odd not in rng:
+        out.append(f"奇数个数={odd} 不在 {list(rng)}")
+    mx = int(ctx.get("max_consecutive", 9))
+    if _n_consecutive_groups(rs) > mx:
+        out.append(f"连号组数={_n_consecutive_groups(rs)} 超过上限 {mx}")
+    return out
+
+
 # ---------------------------------------------------------------------------
 # 4. 形态规律报告（供前端卡片；理论 vs 实测吻合度）
 # ---------------------------------------------------------------------------

@@ -434,6 +434,30 @@ def _scheduler_step():
             _llm_on = False
 
         _res = engine.predict_next(draws, use_llm=_llm_on)
+        # ===== V28：调度器也必须做**逐注** L2 校验 =====
+        #
+        # 为什么不能只在 `/api/predict` 里做：V16 的教训就是「门控只在路由上，
+        # 调度器直连 `engine.predict_next()` 绕过它」。票级校验同理 ——
+        # 若只挂在路由，后台自动生成仍会落库不合规的 LLM 票，而前端看不到任何标记。
+        #
+        # 与路由的差别：调度器**不拒绝**（自动生成没有"用户重新点一次"的交互），
+        # 而是把违规事实写进快照，让 `/api/predictions/last` 能显示出来。
+        # 严格模式下若违规，则整批不落库更合适 —— 但那会与「严格模式优先→自动
+        # 降级统计」的既定策略冲突，故这里统一为「照常落库 + 标注」，
+        # 并在日志里明确报出。
+        if isinstance(_res, dict):
+            try:
+                _l2v = _RP.verify_tickets_l2(_res.get("tickets") or [], draws)
+                _res["l2_ticket_check"] = {
+                    "ok": _l2v["ok"], "n_tickets": _l2v["n"],
+                    "n_violating": _l2v["n_bad"], "violations": _l2v["bad"],
+                    "note_zh": _l2v["note_zh"],
+                }
+                if _l2v["n_bad"]:
+                    print("[scheduler] ⚠ L2 逐注校验未通过：",
+                          _l2v["note_zh"])
+            except Exception as e:      # noqa: BLE001
+                print("[scheduler] L2 逐注校验出错（不影响票单）:", e)
         # 把降级事实写进快照（engine 已落库，这里补标口径）
         if _fallback is not None and isinstance(_res, dict):
             try:

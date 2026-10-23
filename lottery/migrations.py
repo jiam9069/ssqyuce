@@ -364,24 +364,25 @@ def _ensure_user_llm_config(conn: sqlite3.Connection) -> None:
 
 
 def _ensure_issue_baseline(conn: sqlite3.Connection) -> None:
-    """迁移 7：`issue_baseline`（U3 §4.6 的 L0 基线轨道）。
+    """迁移 7：`issue_baseline` —— **V28 起不再建表**（保留函数体为 no-op）。
 
-    为什么需要独立表：`predictions` 的语义是"**这个人的票**"。把"系统基线"
-    塞进 predictions 会让 `online_check` 把系统基线当成"某个用户的战绩"来评估，
-    正是 U3 §2.4 要避免的串号。基线不投注、不花钱，所以它**不是票**。
+    ## 为什么删掉这张表
 
-    本轮只冻结接口（空表）；写入方（每次开奖后自动计算 L0 基线）属于后续版本。
+    它由 U3 §4.6 规划而来，目的是缓存「L0 事实层」基线（同一期所有人看到同一条
+    baseline）。但**写入方从未实现**：全仓库没有任何代码往它写数据，
+    跑了 8 个版本的迁移后仍是 0 行，也没有任何端点读它。
+
+    一张永远为空的表比"没这张表"更糟：它会让后续维护者以为有这套机制在跑，
+    从而在排查「为什么基线不一致」时找错方向。
+
+    ## 为什么保留这个函数（而不是整段删掉）
+
+    `MIGRATIONS` 列表按序号升级，历史上已经到过 7。若把 (7, ...) 整项删掉，
+    老库升级时会跳号，`schema_version` 的连续性被破坏。
+    所以保留占位、不再建表 —— 已存在的空表由 V28 的清理脚本 DROP。
     """
-    conn.execute("""CREATE TABLE IF NOT EXISTS issue_baseline (
-        issue          TEXT PRIMARY KEY,
-        config_fp      TEXT NOT NULL DEFAULT '',
-        tickets_json   TEXT NOT NULL DEFAULT '[]',
-        red_hits       REAL,
-        blue_hit       REAL,
-        reward         REAL,
-        ticket_count   INTEGER NOT NULL DEFAULT 0,
-        created_at     REAL
-    )""")
+    # no-op：V28 起不再创建（原表从未被写入，见 docstring）
+    return None
 
 
 # 既有表的列清单（显式列出：重建时**不用** SELECT *，避免列序变化导致错位）
