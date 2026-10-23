@@ -236,7 +236,8 @@ def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
                 deadline: Optional[float] = None,
                 strict: bool = False,
                 red_probs: Optional[np.ndarray] = None,
-                blue_probs: Optional[np.ndarray] = None) -> List[Dict]:
+                blue_probs: Optional[np.ndarray] = None,
+                model_cfgs: Optional[List[Dict]] = None) -> List[Dict]:
     """多模型 LLM 采样生成候选（U3 角色重定位：组合结构优化，非自由猜号）。
 
     red_probs/blue_probs: 统计/ML 的 33/16 维概率分布，供 LLM 在硬约束下挑选
@@ -254,7 +255,19 @@ def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
         if strict:
             raise LLMChannelError("LLM 已被停用（设置页「停用 LLM」或 LOTT_LLM_DISABLED=1）")
         return []
-    model_cfgs = config.llm_model_list()
+    # V25：`model_cfgs` 由调用方注入（用户生效配置）时优先使用。
+    #
+    # 为什么必须有这条注入路径：旧实现**无条件**读 `config.llm_model_list()`
+    # （全局/管理员默认通道），于是用户在设置页配了自己的 base_url / Key / model
+    # 并保存后，**出号仍然走全局默认**。2026-10-23 实测：用户自备
+    # `group/subscription @ magpie.ff88.de`，出号却去调
+    # `agent-router/deepseek-v4-flash` 并拿到 HTTP 503「无可用渠道」——
+    # 即"设置页显示已配置，出号却用另一条已死的通道"。
+    # 这与 V24 修的 `/api/llm/test` 是同一类缺陷，只是发生在出号链路。
+    if model_cfgs:
+        model_cfgs = [dict(c) for c in model_cfgs]
+    else:
+        model_cfgs = config.llm_model_list()
     if config.LLM_EVAL_MODEL:
         # 评估专用模型（LOTT_LLM_EVAL_MODEL）：评估期间限定单模型，控制成本
         filtered = [c for c in model_cfgs
@@ -633,7 +646,8 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
                  llm_deadline: Optional[float] = None,
                  bet_mode: Optional[str] = None,
                  coverage: bool = False,
-                 coverage_r: Optional[int] = None) -> Dict:
+                 coverage_r: Optional[int] = None,
+                 llm_model_cfgs: Optional[List[Dict]] = None) -> Dict:
     """对下一期生成预测。
 
     use_ml: 是否把 M2 ML 概率模型（GBDT+RF 集成）并入 Brier 加权融合；
@@ -744,11 +758,16 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
     llm_cands = []  # type: ignore
     if use_llm:
         if llm_required:
+            # ⚠️ 这一支（llm_required=True）正是**用户点「强制重新预测」**走的路径。
+            # 第一版我只给下面的 else 支传了 model_cfgs，漏了这里 ——
+            # 于是"用户配置注入"在最关键的路径上完全没生效，用户拿到的仍是
+            # 全局默认通道的 503。必须两支都传。
             llm_cands = llm_tickets(draws, stats, patterns, rng,
                                     llm_samples=llm_samples,
                                     llm_verify=llm_verify,
                                     deadline=llm_deadline, strict=True,
-                                    red_probs=red_blend, blue_probs=blue_blend)
+                                    red_probs=red_blend, blue_probs=blue_blend,
+                                    model_cfgs=llm_model_cfgs)
             if not llm_cands:
                 raise LLMChannelError("LLM 选号轮未返回任何有效候选（模型输出不可解析）")
         else:
@@ -756,7 +775,8 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
                 llm_cands = llm_tickets(draws, stats, patterns, rng,
                                         llm_samples=llm_samples,
                                         llm_verify=llm_verify,
-                                        red_probs=red_blend, blue_probs=blue_blend)
+                                        red_probs=red_blend, blue_probs=blue_blend,
+                                        model_cfgs=llm_model_cfgs)
             except Exception as e:  # noqa: BLE001
                 print(f"[engine] LLM 通道异常，降级为纯统计: {e}")
                 llm_cands = []

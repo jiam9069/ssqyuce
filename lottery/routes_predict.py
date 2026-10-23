@@ -430,11 +430,48 @@ def predict(use_llm: Optional[bool] = None,
     except Exception:      # noqa: BLE001 —— 配额判定失败绝不能阻断出号
         _quota_note = ""
 
+    # V25：把**当前用户生效的 LLM 配置**注入出号链路。
+    #
+    # 缺陷（2026-10-23 用户报告）：用户在设置页配了自备通道并保存，
+    # 出号却仍走全局默认 `agent-router/deepseek-v4-flash`，
+    # 拿到 HTTP 503「当前分组下无可用渠道」。
+    # 根因：`engine.llm_tickets()` 无条件读 `config.llm_model_list()`，
+    # 出号链路从来没有拿到过用户配置（`_eff` 在上面算出来了却没用在这里）。
+    # 这与 V24 修的 `/api/llm/test` 是同一类缺陷，只是位置不同。
+    _llm_cfgs = None
+    # 直接重新解析一次，**不依赖**上面 `_eff` 是否已赋值 ——
+    # 用 `locals().get("_eff")` 容易踩到"赋值顺序变化就静默失效"的坑
+    # （第一版就是这样：测试里 `_eff` 还没赋值，注入整段被跳过，断言拿到 None）。
+    try:
+        from . import user_llm_store as _U0
+        _src0 = _U0.effective_for_user(request_context.current_user_id())
+    except Exception:      # noqa: BLE001
+        _src0 = {}
+    if (_src0 or {}).get("source") == "user":
+        # 只有「用户自备」才注入：共享通道的 Key 走 with_secret=False 拿不到明文，
+        # 注入一个没有 Key 的配置只会让引擎判定"未配置"而误报。
+        try:
+            from . import user_llm_store as _ULS2
+            _full = _ULS2.effective_for_user(
+                request_context.current_user_id(), with_secret=True)
+            if _full.get("llm_available") and _full.get("api_key"):
+                _llm_cfgs = [{
+                    "base_url": _full.get("base_url"),
+                    "api_key": _full.get("api_key"),
+                    "model": _full.get("model"),
+                    "samples": _full.get("samples"),
+                    "extra_body": _full.get("extra_body") or {},
+                    "source": "user",
+                }]
+        except Exception as e:      # noqa: BLE001
+            print(f"[predict] 读取用户 LLM 配置失败，回退全局通道: {e}")
+            _llm_cfgs = None
     try:
         res = engine.predict_next(draws, use_llm=use_llm, n_tickets=_n_req,
                                   llm_required=(use_llm is True),
                                   bet_mode=bet_mode, coverage=coverage,
-                                  coverage_r=coverage_r)
+                                  coverage_r=coverage_r,
+                                  llm_model_cfgs=_llm_cfgs)
     except LLMChannelError as e:
         return JSONResponse(
             {"ok": False, "llm_required": True,
