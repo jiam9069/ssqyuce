@@ -4612,6 +4612,76 @@ async function loadWalkForward() {
   }
 }
 
+// V27：方差优化选号卡。
+//
+// 它展示的是「票单结构好不好」，**不是**「号码准不准」。
+// 三个数字必须同时出现（缺一即误导）：
+//   ① var_ratio 降了多少（真实增益，任何人可用 ticket_distribution 复核）
+//   ② 并集覆盖 / P(≥4红)（副产物，同样可复核）
+//   ③ 期望收益没变（EV 恒为 n × ¥1.0458）
+async function loadVariancePick(nTickets) {
+  const tag = $("#vpTag"), body = $("#vpBody"), honesty = $("#vpHonesty");
+  const seedNote = $("#vpSeedNote");
+  if (!body) return;
+  const n = Math.max(1, Math.min(50, parseInt(nTickets, 10) || 10));
+  body.innerHTML = '<div class="muted">计算中…</div>';
+  tag.textContent = "计算中…";
+  tag.style.color = "var(--muted)";
+  try {
+    const r = await api("/api/portfolio/variance-pick?n_tickets=" + n +
+                        "&seed=42&with_baseline=true&baseline_samples=60");
+    if (!r || r.ok === false) {
+      tag.textContent = "不可用";
+      body.innerHTML = '<div class="muted">' +
+        escHtml((r && r.error) || "计算失败") + '</div>';
+      return;
+    }
+    const s = r.summary || {};
+    const b = (r.baseline && r.baseline.ok) ? r.baseline : null;
+    const imp = b ? b.improvement : null;
+    const varTxt = Number(s.var_ratio || 0).toFixed(3);
+    const varImp = imp ? (imp.var_ratio_pct > 0 ? "+" : "") + imp.var_ratio_pct + "%" : "—";
+    const p4 = s.p_at_least_r ? s.p_at_least_r["4"] : null;
+    const p4Imp = imp && imp.p_at_least_r_pct
+      ? (imp.p_at_least_r_pct["4"] > 0 ? "+" : "") + imp.p_at_least_r_pct["4"] + "%"
+      : "—";
+    const rows = [
+      ["注数", String(s.n || n)],
+      ["红球并集", String(s.union_coverage || 0) + " / 33" +
+        (imp ? "（随机均值 " + b.random_baseline.union_coverage_mean.toFixed(1) + "）" : "")],
+      ["方差比 var_ratio", varTxt + (imp ? "（比随机 " + varImp + "）" : "")],
+      ["P(≥1 注中 ≥4 红)", p4 === null ? "—" : (Number(p4) * 100).toFixed(3) + "%" +
+        (imp ? "（" + p4Imp + "）" : "")],
+      ["P(≥1 注中 ≥3 红)", s.p_at_least_r ? (Number(s.p_at_least_r["3"]) * 100).toFixed(2) + "%" : "—"],
+      ["期望命中数", Number(s.expected_hits || 0).toFixed(3) + "（= n × 12/11，恒等式）"],
+    ];
+    const kv = rows.map(function (kvrow) {
+      return '<div class="kv"><span class="muted">' + escHtml(kvrow[0]) + '</span><b>' +
+        escHtml(kvrow[1]) + '</b></div>';
+    }).join("");
+    const tickets = (r.tickets || []).map(function (t) {
+      return '<div class="ticket-line" style="font-family:monospace">' +
+        (t.reds || []).map(function (x) { return String(x).padStart(2, "0"); }).join(" ") +
+        '</div>';
+    }).join("");
+    body.innerHTML = kv +
+      '<div style="margin-top:10px"><b>红球组合（蓝球请自行选择）</b></div>' +
+      '<div style="margin-top:4px">' + tickets + '</div>';
+    tag.textContent = b ? "方差 " + varImp : "已生成";
+    tag.style.color = "var(--green)";
+    if (honesty) {
+      const h = r.honesty || {};
+      honesty.innerHTML = escHtml(h.ev_unchanged_zh || "") + " " +
+        escHtml(h.p_at_least_r_note_zh || "") + " " +
+        escHtml(h.no_prediction_zh || "");
+    }
+    if (seedNote) seedNote.textContent = "种子 " + r.seed + " · 同种子可复现";
+  } catch (e) {
+    tag.textContent = "不可用";
+    body.innerHTML = '<div class="muted">' + escHtml((e && e.message) || "加载失败") + '</div>';
+  }
+}
+
 async function loadRigor() {
   const card = $("#rigorCard");
   try {
@@ -4870,7 +4940,7 @@ async function loadAll() {
       if (health.version) {
         const ver = "v" + health.version;
         const vb = $("#verBadge"), vt = $("#verText");
-        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + " · v4.8.2 V25"; }
+        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + " · v4.9.0 V27"; }
         if (vt) vt.textContent = ver;
       }
     }
@@ -4888,6 +4958,11 @@ async function loadAll() {
     }
     loadRigor();   // V4：随机性检验卡（依赖缺失时自行降级，不影响其它区块）
   loadWalkForward();  // V23：前向回测卡（同样自降级；失败不阻塞首屏）
+  loadVariancePick(10);  // V27：方差优化选号卡（自降级；不阻塞首屏）
+  (function bindVariancePick(){
+    const btn = $("#vpRun"), inp = $("#vpN");
+    if (btn && inp) btn.addEventListener("click", function(){ loadVariancePick(inp.value); });
+  })();
     initMlStatus();
     try {
       const llmRep = await api("/api/eval/llm/latest");

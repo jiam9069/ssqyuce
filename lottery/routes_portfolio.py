@@ -749,3 +749,140 @@ def portfolio_capabilities() -> Dict:
             "凡是本端点没写进 evidence 的数字，都不要当成结论。"
         ),
     })
+
+
+# ===========================================================================
+# V27：方差优化选号（`variance_picker` 的唯一读口）
+# ===========================================================================
+#
+# 这个端点存在的理由：用户问「能不能用『降低方差』这个思路出号」。
+# 答案是**能**，但要三方同屏——优化了什么、没优化什么、凭什么复核。
+#
+# 三个数字必须一起看（缺一就是误导）：
+#   ① 方差比降到多少（真实增益，任何人都能用 ticket_distribution 复核）
+#   ② 并集覆盖 / P(≥4红)（副产物，同样可复核）
+#   ③ 期望收益**没变**（EV = n × ¥1.0458 恒等式）
+#
+# 若只给 ① 不给 ③，用户会以为「方差小 = 更划算」，那是假的。
+
+@router.get("/api/portfolio/variance-pick")
+def portfolio_variance_pick(
+    n_tickets: int = Query(10, ge=1, le=50,
+                           description="要买几注（1~50）"),
+    seed: int = Query(42, ge=0, le=10 ** 6,
+                      description="随机种子（同种子同结果，便于复核）"),
+    iterations: Optional[int] = Query(
+        None, ge=100, le=200000,
+        description="退火迭代次数；默认 max(2000, 400×n_tickets)"),
+    with_baseline: bool = Query(
+        True, description="是否附带与「同样注数的均匀随机票单」的对照（约 0.3~2s）"),
+    baseline_samples: int = Query(
+        60, ge=10, le=300,
+        description="随机对照的抽样次数（越多越稳，但越慢）"),
+):
+    """按**方差最小化**出号 —— 这是本系统唯一"能改进"的方向，但不是提高收益。
+
+    ## 它优化的是什么
+
+    命中总数 T 的方差。对 n 注票单有解析式（组合恒等式，不是拟合）：
+
+        E[T]   = n · 12/11                       与选号**无关**
+        Var[T] = n·σ₁² · [1 + (n−1)(11/54)(Ā − 12/11)]
+
+    所以方差只取决于重号平均 Ā。最小化 Ā ⇒ 最小化方差。
+
+    ## 实测对照（n=10，多组抽样平均）
+
+        ┌──────────┬────────────┬───────────┬──────┐
+        │ 策略     │ P(≥4红)    │ var_ratio │ 并集 │
+        ├──────────┼────────────┼───────────┼──────┤
+        │ 均匀随机 │ 0.047768   │ 1.0031    │ 28.8 │
+        │ 最小方差 │ 0.048767   │ 0.2019    │ 33.0 │
+        │ 变化     │ +2.09%     │ −79.9%    │ +4.2 │
+        └──────────┴────────────┴───────────┴──────┘
+
+    ## 必须同屏的诚实边界
+
+    ✅ **方差降到约 20%**（命中总数更稳定）
+    ✅ **P(≥1 注命中 ≥4 红) 提高约 1~2%**（并集扩大的副产物）
+    ❌ **期望收益完全不变**：EV 恒为 n × ¥1.0458（52.29% 回收）
+    ❌ **单注头奖概率恒为 1/17,721,088**，不因选号改变
+
+    第 3 条是这个端点的核心：**方差小 ≠ 更划算**。
+    方差的降低改善的是「结果的稳定性」，不是「期望」。
+
+    ## 区别于其它端点
+
+    · `/api/portfolio/distribution`：给**已买的**票做诊断（事后）
+    · `/api/portfolio/variance-pick`：给**要买的**票做设计（事前，本端点）
+    · `/api/predict`：走严格模式门控出号（那套判据针对"预测力"，与本端点无关）
+
+    本端点**不进严格模式门控**——因为它不声称有预测力，它只做组合结构优化。
+    把它塞进门控会造成语义混淆（门控问的是"有规律吗"，这里问的是"结构好不好"）。
+    """
+    from . import variance_picker as VP
+
+    try:
+        reds_list = VP.pick_min_variance(
+            n_tickets, seed=seed, iterations=iterations)
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    if not reds_list:
+        return JSONResponse(
+            {"ok": False,
+             "error": ("n_tickets 必须 ≥1：请把注数改成 1~50 之间的整数后重试"
+                       "（0 注无法生成任何票单）")},
+            status_code=400)
+
+    summary = VP.summarize(reds_list, exact=True)
+    out = {
+        "ok": True,
+        "method": "min_var",
+        "method_zh": "最小方差选号（组合结构优化，不预测号码）",
+        "n_tickets": len(reds_list),
+        "seed": seed,
+        "iterations": iterations if iterations is not None else max(2000, 400 * n_tickets),
+        "tickets": [{"reds": r, "blue": None} for r in reds_list],
+        "summary": summary,
+        "objective_zh": (
+            "目标是最小化命中总数的方差（等价于最小化票间平均重号 Ā），"
+            "并集覆盖作为平手判据。**不优化**期望收益——它无法被优化。"
+        ),
+        "honesty": {
+            "ev_unchanged": True,
+            "ev_unchanged_zh": (
+                "期望收益与选号无关：EV 恒为 n × ¥1.0458（52.29% 回收）。"
+                "方差降低改善的是结果稳定性，不是期望。"
+            ),
+            "no_prediction": True,
+            "no_prediction_zh": (
+                "本端点不预测下一期号码。单注头奖概率恒为 1/17,721,088，"
+                "任何选号策略都不改变它。"
+            ),
+            "p_at_least_r_note_zh": (
+                "P(≥1 注命中 ≥r 红) 的提升来自**并集覆盖扩大**，"
+                "不是来自'选号更准'——它是副产物，不是优化目标。"
+            ),
+        },
+        "how_to_verify_zh": (
+            "拿返回的 tickets 调 POST /api/portfolio/distribution 或 "
+            "engine.ticket_distribution()，var_ratio 与 p_at_least_r 应完全一致"
+            "（同一套精确枚举口径）。"
+        ),
+    }
+    if with_baseline:
+        try:
+            out["baseline"] = VP.compare_to_random(
+                reds_list, n_samples=baseline_samples, seed=seed ^ 0x5A5A)
+        except Exception as exc:      # noqa: BLE001 —— 对照失败不影响主结果
+            # D-17：降级必须可见，不能静默省略 baseline 字段
+            out["baseline"] = {
+                "ok": False,
+                "reason": "baseline_failed",
+                "error_zh": (
+                    f"随机对照计算失败（{type(exc).__name__}），"
+                    "主结果（tickets/summary）不受影响；"
+                    "可加 with_baseline=false 跳过对照后重试。"
+                ),
+            }
+    return _jsonable(out)
