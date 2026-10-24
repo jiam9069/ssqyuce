@@ -96,8 +96,18 @@ def offline_backtest(draws: List[Dict], issues: int = 120,
         history = draws[:i]
         target = draws[i]  # 实际开奖 (第 i 期)
         # 引擎离线回测不启用 ML：ML 的诚实证据由 /api/ml/eval 单独给出
+        #
+        # ⚠️ rng 必须透传（V36，2026-10-24 审计 P0-4）：
+        # 原先这里不传 rng，`predict_next` 回落到未播种的 `random.Random()`，
+        # 而本函数的 `rng = random.Random(seed)` 只用于下面的随机基线 ——
+        # 于是"同 seed 可复现"只对基线成立、对系统组不成立。实测同数据同
+        # seed=7 两次得到 delta_red_hits = -0.0400 / -0.1133，跨过
+        # hypothesis 的 |delta| ≥ 0.05 判决阈值 ⇒ 同一份数据判决可能翻转。
+        # 修法：每期派生一个**互相独立但确定**的子种子，避免各期共用同一条
+        # 随机流（那样后期结果会取决于前面跑过多少期，期数一变全变）。
+        _period_rng = random.Random(seed * 1_000_003 + i)
         res = E.predict_next(history, use_llm=use_llm, n_tickets=n_tickets,
-                             persist=False, use_ml=False)
+                             persist=False, use_ml=False, rng=_period_rng)
         runs_sys.append(tickets_result(res["tickets"], target))
         # 随机基线：均匀约束票
         if ctx is None:

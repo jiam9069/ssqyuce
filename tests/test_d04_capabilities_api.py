@@ -121,7 +121,8 @@ def test_constants_match_redline_table():
     assert consts["alpha"] == pytest.approx(0.05), "α 必须与红线表一致"
     assert consts["single"] == 306, "单因子搜索空间必须为 306"
     assert consts["cross"] == 72350, "跨族搜索空间必须为 72350"
-    assert consts["ev_sixth"] == pytest.approx(0.15625, abs=1e-6), \
+    # V36：官方六等奖返奖比 = 5×P(红≤2)/32 ≈ 0.1472314（旧值 0.15625 漏了红球条件）
+    assert consts["ev_sixth"] == pytest.approx(0.1472314, abs=1e-6), \
         "六等奖返奖比必须恒为 15.625%"
     # ev_single 必须走 strict 口径（与 `/api/portfolio/blue-coverage` 一致）。
     # 这里做**精确断言**而非区间断言 —— 曾经的 `0.40 <= x <= 0.65` 什么都防不住：
@@ -167,7 +168,7 @@ def test_ev_single_tracks_prize_assumption(monkeypatch):
 def test_ev_sixth_equals_identity_five_over_32():
     """六等奖返奖比必须**精确**等于恒等式 5/32，不只是「约等于」。"""
     consts = C.capabilities()["constants"]
-    assert consts["ev_sixth"] == pytest.approx(5 / 32, abs=1e-9)
+    assert consts["ev_sixth"] == pytest.approx(0.1472314, abs=1e-6)
 
 
 def test_constants_carry_their_sources():

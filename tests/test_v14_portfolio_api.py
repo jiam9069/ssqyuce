@@ -46,6 +46,15 @@ import random
 import re
 
 import pytest
+
+# V36（2026-10-24 审计 P1-6）：六等奖官方口径常量。
+# 官方六等奖 = 蓝中 **且** 红 ≤ 2；旧基准 5/32 = 0.15625 隐含"蓝中即中奖"，
+# 漏了红球条件（偏高 6.25%）。这里独立算，不 import 被测模块，
+# 避免"用实现自证实现"的自指断言。
+from math import comb as _comb
+P_RED_LE2_OFFICIAL = (_comb(6, 0) * _comb(27, 6) + _comb(6, 1) * _comb(27, 5)
+                      + _comb(6, 2) * _comb(27, 4)) / _comb(33, 6)
+EV_RATIO_SIXTH_OFFICIAL = 5.0 * P_RED_LE2_OFFICIAL / 32.0     # ≈0.1472314
 from fastapi.responses import JSONResponse
 
 from lottery import routes_portfolio as R
@@ -403,20 +412,25 @@ def test_blue_coverage_ratio_is_constant_for_all_n():
     """
     for n in (1, 5, 10, 16, 17, 50, 100):
         body = _json(R.portfolio_blue_coverage(n_tickets=n))
-        assert body["ev_ratio_sixth"] == pytest.approx(5 / 32, abs=1e-6), (
-            f"n={n} 返奖比 {body['ev_ratio_sixth']} 偏离 5/32 —— "
+        assert body["ev_ratio_sixth"] == pytest.approx(EV_RATIO_SIXTH_OFFICIAL, abs=1e-6), (
+            f"n={n} 返奖比 {body['ev_ratio_sixth']} 偏离官方口径 —— "
             f"若在 n>16 处偏离，说明 EV 又用回了「至少中一次」口径")
 
 
 @pytest.mark.parametrize("n, expected_ev", [
-    (1, 0.3125), (10, 3.125), (16, 5.0),
-    (17, 5.3125), (50, 15.625), (100, 31.25),
+    # V36：官方无条件期望 = n × P(红≤2)/16 × 5（旧值 n/16×5 漏了红球条件）
+    (1, 0.29446), (10, 2.94463), (16, 4.71141),
+    (17, 5.00587), (50, 14.72313), (100, 29.44627),
 ])
 def test_sixth_ev_uses_expected_hit_count(n, expected_ev):
-    """`ev_sixth_yuan == n/16 × 5`，对任意 n 成立。"""
+    """`ev_sixth_yuan == n × P(红≤2)/16 × 5`，对任意 n 成立。
+
+    V36 修正：旧式 `n/16×5` 假设"中蓝即兑 5 元"，漏了六等奖还要求红 ≤2。
+    """
     body = _json(R.portfolio_blue_coverage(n_tickets=n))
-    assert body["ev_sixth_yuan"] == pytest.approx(expected_ev, abs=1e-6), (
-        f"n={n}：六等奖 EV 应为 {expected_ev}（= n/16×5），"
+    # 端点字段按 4 位小数发布，容差取 5e-5
+    assert body["ev_sixth_yuan"] == pytest.approx(expected_ev, abs=5e-5), (
+        f"n={n}：六等奖 EV 应为 {expected_ev}（= n×P(红≤2)/16×5），"
         f"实际 {body['ev_sixth_yuan']}")
 
 
@@ -436,27 +450,43 @@ def test_sixth_ev_matches_real_settlement_engine():
     """用项目自己的结算函数交叉验证 EV —— 不靠公式自证。
 
     `evaluate.tickets_result()` 逐注调 `prize_level` 再求和，是六等奖的权威口径。
-    这里让红球必然不中（与开奖红球交集为空），只让蓝球决定六等奖。
 
-    这是唯一不依赖 `optimize()` 内部公式的独立验证：任何"只改公式不改语义"
-    的改法都会在这里暴露。
+    ## V36 修正（2026-10-24 审计 P1-6）：必须结算**无条件**期望
+
+    旧版本把开奖红球固定成"与票的红球全不相交"（红命中恒为 0），只让蓝球决定。
+    在那个**条件场景**里"红≤2"永远成立，于是每期命中 n/16 注、返奖比恒为
+    0.15625 —— 这个数字是"给定红命中 0"的**条件期望**，不是端点上那个
+    **无条件期望**。端点要回答的是"随便一期开奖，这批票值多少钱"，
+    此时必须对红球分布也取期望（红命中 ≥3 时中蓝也不兑六等奖）。
+
+    两者都对，但**不能混用**：无条件口径 = 5 × P_SIXTH × n / 成本 = 0.1472314。
+    现在把开奖红球也遍历掉（用 C(33,6) 全枚举太贵，改用按红命中数加权的
+    精确超几何分布），得到真正的无条件期望来对拍端点。
     """
     from lottery import blue_coverage as BC
     from lottery.evaluate import PRIZE_CASH, prize_level
 
     n = 100
     plan = BC.coverage_plan(n)
-    pred_reds, act_reds = [1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12]
+    pred_reds = [1, 2, 3, 4, 5, 6]
+    total_red = _comb(33, 6)
 
+    # 无条件期望：对"开奖红球命中 r 个"按超几何概率加权，
+    # 每种 r 用一个代表开奖红球集合（兑奖只取决于命中数，与具体号码无关）。
     total = 0.0
-    for act_blue in range(1, 17):              # 16 个蓝球等概率
-        for b in plan:
-            if prize_level(pred_reds, b, act_reds, act_blue) == 6:
-                total += PRIZE_CASH[6]
-    real_ev = total / 16.0
+    for r in range(7):
+        p_r = _comb(6, r) * _comb(27, 6 - r) / total_red
+        act_reds = pred_reds[:r] + list(range(7, 7 + (6 - r)))
+        assert len(set(act_reds)) == 6
+        for act_blue in range(1, 17):           # 16 个蓝球等概率
+            for b in plan:
+                if prize_level(pred_reds, b, act_reds, act_blue) == 6:
+                    total += p_r * (1.0 / 16.0) * PRIZE_CASH[6]
+    real_ev = total
 
     body = _json(R.portfolio_blue_coverage(n_tickets=n))
-    assert body["ev_sixth_yuan"] == pytest.approx(real_ev, abs=1e-6), (
+    # 端点字段本身按 4 位小数发布（人读口径），故容差取 5e-5 而非 1e-6。
+    assert body["ev_sixth_yuan"] == pytest.approx(real_ev, abs=5e-5), (
         f"端点报六等奖 EV={body['ev_sixth_yuan']}，真实结算 {real_ev} —— 公式与结算不一致")
 
 
@@ -470,7 +500,7 @@ def test_blue_coverage_saturation_flag_matches_definition():
         assert body["coverage_saturated"] is (n > 16), f"n={n} 饱和标志错误"
     for n in (17, 100):
         assert _json(R.portfolio_blue_coverage(n_tickets=n))["ev_ratio_sixth"] \
-            == pytest.approx(5 / 32, abs=1e-9)
+            == pytest.approx(EV_RATIO_SIXTH_OFFICIAL, abs=1e-6)
 
 
 def test_saturation_note_is_about_probability_not_ratio():
@@ -545,7 +575,9 @@ def test_capabilities_blue_coverage_discloses_no_ev_gain():
     body = _json(R.portfolio_capabilities())
     cap = next(c for c in body["capabilities"] if c["id"] == "blue_coverage")
     joined = "\n".join(e["value"] for e in cap["evidence"]) + cap["honest_note"]
-    assert "15.625" in joined or "15.62" in joined
+    # V36：官方口径已由 15.625% 修正为 14.723%（六等奖还要求红 ≤2）
+    assert "14.723" in joined or "14.72" in joined
+    assert "15.625" not in joined, "旧的错误返奖比又回来了"
     assert "期望" in joined
     assert "1/17,721,088" in joined
 
@@ -694,7 +726,7 @@ def test_ev_ratio_full_never_exceeds_one():
 # 十、返奖比恒定性：跨 n=1..10000 全域（Lead 要求）
 #
 # 目的：防止将来有人把 `ev_sixth` 改回 `p_cover × 5`（即「至少中一次的概率」）
-# 或做任何"优化"。返奖比必须**处处**等于 5/32，而不只是在几个采样点上等于。
+# 或做任何"优化"。返奖比必须**处处**等于 5×P(红≤2)/32，而不只是在几个采样点上等于。
 # ==========================================================================
 
 #: 代表性取样点：覆盖 n≤16 段、临界点 16/17、以及多个量级以上
@@ -708,17 +740,20 @@ _RATIO_SAMPLE_NS = (
 
 @pytest.mark.parametrize("n", _RATIO_SAMPLE_NS)
 def test_return_ratio_constant_across_all_magnitudes(n):
-    """`ev_ratio_sixth` 在 n=1..10000 的各个量级上都必须精确等于 5/32。
+    """`ev_ratio_sixth` 在 n=1..10000 的各个量级上都必须精确等于 5×P(红≤2)/32。
 
     这是"覆盖优化不改变期望"的终极具守。任何把 EV 公式改错的改动都会
     在 n>16 的点上立刻失败。
     """
     body = _json(R.portfolio_blue_coverage(n_tickets=n))
-    assert body["ev_ratio_sixth"] == pytest.approx(5 / 32, abs=1e-9), (
-        f"n={n} 返奖比 {body['ev_ratio_sixth']} != 5/32 —— "
+    assert body["ev_ratio_sixth"] == pytest.approx(EV_RATIO_SIXTH_OFFICIAL, abs=1e-6), (
+        f"n={n} 返奖比 {body['ev_ratio_sixth']} != 5×P(红≤2)/32 —— "
         f"期望命中注数口径可能又被换成了「至少中一次」")
-    # 同时校验 EV 精确等于 n/16 × 5（不是封顶值）
-    assert body["ev_sixth_yuan"] == pytest.approx(n / 16 * 5, abs=1e-6)
+    # 同时校验 EV 精确等于 n × P(红≤2) / 16 × 5（**不是**封顶值，也**不是** n/16×5）。
+    # V36：旧式 n/16×5 假设"中蓝即兑 5 元"，漏了六等奖要求红 ≤2 —— 那会让
+    # 每注多算 P(红≥3)≈5.8% 的奖金。这里用官方无条件期望。
+    assert body["ev_sixth_yuan"] == pytest.approx(
+        n * P_RED_LE2_OFFICIAL / 16.0 * 5.0, abs=1e-4)
 
 
 def test_return_ratio_constant_over_full_range_1_to_1000():
@@ -731,9 +766,9 @@ def test_return_ratio_constant_over_full_range_1_to_1000():
     deviations = []
     for n in range(1, 1001):
         ratio = _json(R.portfolio_blue_coverage(n_tickets=n))["ev_ratio_sixth"]
-        if abs(ratio - 5 / 32) > 1e-9:
+        if abs(ratio - EV_RATIO_SIXTH_OFFICIAL) > 1e-6:
             deviations.append((n, ratio))
-    assert not deviations, f"以下注数的返奖比偏离 5/32：{deviations[:10]}"
+    assert not deviations, f"以下注数的返奖比偏离官方口径：{deviations[:10]}"
 
 
 # ==========================================================================
@@ -776,14 +811,17 @@ def test_d1_sixth_mode_is_none_without_full_ev():
 
 
 def test_d2_disclosure_uses_three_decimals():
-    """D2：披露必须渲染出 `3.125 / 16.875 / 15.625%`（精确恒等式不得被截断）。
+    """D2：披露必须渲染出 `2.945 / 17.055 / 14.723%`（精确恒等式不得被截断）。
+
+    V36 修正：三项均由官方六等奖口径重算（旧值 3.125 / 16.875 / 15.625% 漏了
+    「红球 ≤2」这一条件：10 注成本 20 元，期望回收 20×P(红≤2)/16×5/2 × 5 折合 2.945 元）。
 
     **变异捕捉**：任一处改回 `.2f` ⇒ 本用例红。
     """
     lines = _json(R.portfolio_blue_coverage(n_tickets=10))["disclosure_lines"]
-    assert "3.125 元" in lines[1], f"期望回收应渲染 3.125 元，实际：{lines[1]}"
-    assert "16.875 元" in lines[1], f"净亏应渲染 16.875 元，实际：{lines[1]}"
-    assert "15.625%" in lines[2], f"返奖比应渲染 15.625%，实际：{lines[2]}"
+    assert "2.945 元" in lines[1], f"期望回收应渲染 2.945 元，实际：{lines[1]}"
+    assert "17.055 元" in lines[1], f"净亏应渲染 17.055 元，实际：{lines[1]}"
+    assert "14.723%" in lines[2], f"返奖比应渲染 14.723%，实际：{lines[2]}"
 
 
 def test_d2_arithmetic_closes_in_disclosure():
@@ -807,7 +845,7 @@ def test_d2_arithmetic_closes_in_disclosure():
 def test_d2_saturated_branch_also_three_decimals():
     """D2 第 4 处：饱和分支的返奖比同样必须 `.3f`（口径一致）。"""
     joined = "\n".join(_json(R.portfolio_blue_coverage(n_tickets=17))["disclosure_lines"])
-    assert "15.625%" in joined, f"饱和分支返奖比应渲染 15.625%，实际：{joined}"
+    assert "14.723%" in joined, f"饱和分支返奖比应渲染 14.723%，实际：{joined}"
 
 
 def test_d1_d2_end_to_end_consistency():
@@ -1589,8 +1627,9 @@ def test_blue_coverage_sixth_ev_never_affected_by_full_ev_failure(monkeypatch):
     monkeypatch.setattr(engine, "_single_ticket_ev",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")))
     body = _json(R.portfolio_blue_coverage(n_tickets=10))
-    assert body["ev_ratio_sixth"] == pytest.approx(5 / 32, abs=1e-9)
-    assert body["ev_sixth_yuan"] == pytest.approx(3.125, abs=1e-9)
+    assert body["ev_ratio_sixth"] == pytest.approx(EV_RATIO_SIXTH_OFFICIAL, abs=1e-6)
+    # V36：官方无条件期望 = 10 × P(红≤2)/16 × 5 = 2.94463；端点按 4 位小数发布
+    assert body["ev_sixth_yuan"] == pytest.approx(2.94463, abs=5e-5)
     assert body["ok"] is True, "六等奖仍可用 ⇒ 整体仍应 200"
 
 

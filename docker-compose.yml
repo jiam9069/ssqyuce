@@ -45,8 +45,15 @@ services:
       - LOTT_BOOT_PREDICT=${LOTT_BOOT_PREDICT:-1}
       - LOTT_TOKEN=${LOTT_TOKEN:-}
       # W08：多用户鉴权。off = 只解析身份不拦截（灰度）；enforce = deny-by-default。
-      # 默认 off 是刻意的：前端登录层刚落地，先验证再切换，避免整站 401。
-      - LOTT_AUTH_MODE=${LOTT_AUTH_MODE:-off}
+      #
+      # V36（2026-10-24 审计 P0-5）：默认值 off → **enforce**。
+      # 原默认 off 会让**无会话请求**走到 `db.resolve_tenant(None)` 的兜底分支 ——
+      # 该分支返回**主管理员** uid（db.py:539-541），于是匿名访问
+      # `/api/predict?regenerate=1` 会 DELETE 并重写主管理员的票单。
+      # 灰度期这个默认可以理解，但前端登录层早已落地（W08 + MU-1/MU-2），
+      # 继续默认关等于默认不安全。需要在无鉴权环境下跑（本地调试/单机试用）时，
+      # 显式设 LOTT_AUTH_MODE=off。
+      - LOTT_AUTH_MODE=${LOTT_AUTH_MODE:-enforce}
       # W08：一次性引导口令（把 bootstrap 行升级为主管理员）。
       # **没有任何默认值**：未配置则引导通道整个关闭。
       # 引导成功后必须从 .env 删除并重启（后端的 consume_bootstrap_token 只清进程内 env）。

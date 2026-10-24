@@ -524,18 +524,35 @@ def resolve_tenant(user_id: Optional[int] = None) -> int:
     """解析"这次读写算谁的"。顺序：显式 → 请求上下文 → 主管理员 → SYSTEM。
 
     显式参数永远优先：后台任务/调度器必须**显式**传入发起人，不能依赖上下文。
+
+    ## V36 修正（2026-10-24 审计 P0-5）：HTTP 请求上下文里 **绝不** 兜底到主管理员
+
+    "主管理员兜底"存在的正当理由只有一个：**后台线程不继承 contextvars**
+    （见上面第 2 条）—— 调度器/boot 预测丢了上下文后，需要有一个确定的落点。
+    但它被错误地用到了 HTTP 请求路径上：`AUTH_MODE=off` 时中间件对无会话请求
+    直接放行且不写 contextvar，于是匿名请求走到这里 → 返回主管理员 uid →
+    匿名 `POST /api/predict?regenerate=1` 会 DELETE 并重写**主管理员**的票单。
+
+    现在改为：**只有在非 HTTP 上下文**（没有 `request_context` 的请求标记）时
+    才启用管理员兜底；HTTP 请求且无身份 ⇒ 归 `SYSTEM_USER_ID`（谁也不属于），
+    绝不自作主张记到某个人名下。
     """
     if user_id is not None:
         return int(user_id)
+    in_request = False
     try:
         # P2：改依赖 `request_context`（纯状态模块），不再反向 import `api_app`。
         # 依赖方向：db → request_context ← api_app，单向。
         from . import request_context
+        in_request = bool(request_context.in_request())
         uid = request_context.current_user_id()
         if uid:
             return int(uid)
     except Exception:      # noqa: BLE001 —— 无请求上下文
-        pass
+        in_request = False
+    # HTTP 请求但没解析出身份：不冒认任何人（V36，P0-5）。
+    if in_request:
+        return SYSTEM_USER_ID
     admin = _single_tenant_admin_id()
     if admin:
         return int(admin)

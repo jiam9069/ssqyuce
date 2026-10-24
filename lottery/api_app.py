@@ -189,11 +189,17 @@ async def auth_middleware(request: Request, call_next):
 
     # 灰度期：不拦截，但把身份写进 contextvar，便于后续按用户化改造渐进生效
     if not config.auth_enforced():
+        # V36（P0-5）：必须同时打上"这是一次 HTTP 请求"的标记，否则
+        # `db.resolve_tenant` 会把"无身份"误判成"后台线程"而兜底到主管理员，
+        # 让匿名请求写别人的票单。见 request_context.in_request 的注释。
+        from . import request_context as _rc
+        _req_tok = _rc.set_in_request(True)
         if uid is not None:
             _current_user_id.set(uid)
         try:
             return await call_next(request)
         finally:
+            _rc.reset_in_request(_req_tok)
             _current_user_id.set(None)
 
     if uid is None:
@@ -220,10 +226,15 @@ async def auth_middleware(request: Request, call_next):
         return JSONResponse({"ok": False, "error": "需要管理员权限"}, status_code=403)
 
     # ⑤ contextvar：仅供 llm_client 这类**无法改签名**的深层库读取
+    #    V36（P0-5）：同样要打 in_request 标记（详见 request_context 注释），
+    #    否则已登录请求在 `resolve_tenant` 眼里和后台线程无法区分。
+    from . import request_context as _rc2
+    _req_tok2 = _rc2.set_in_request(True)
     _current_user_id.set(uid)
     try:
         return await call_next(request)
     finally:
+        _rc2.reset_in_request(_req_tok2)
         _current_user_id.set(None)      # AnyIO 工作线程会被复用，不清理会串身份
 
 
@@ -340,8 +351,15 @@ def _scheduler_step():
     # 失败只降级、绝不中断调度（与既有约定一致）。
     try:
         from . import prereg_scheduler
+        # V36 修复（2026-10-24 审计 P1-12）：此处原先用 `draws`，但 `draws`
+        # 要到本函数后半段（约 :400）才被赋值 ⇒ 必然 NameError，被下面的
+        # `except` 静默吞掉，于是**前置注册的写入侧从未真正执行过**——
+        # 而上面那段注释恰恰在宣告"这处断链已经接通"。注释不能当校验用。
+        # 现在就地取数据，不再依赖后续的局部变量。
+        _draws_for_prereg = db.load_draws()
         _scan = prereg_scheduler.register_scan_candidates(
-            db.load_draws(), issue=str(draws[-1]["issue"]) if draws else "")
+            _draws_for_prereg,
+            issue=str(_draws_for_prereg[-1]["issue"]) if _draws_for_prereg else "")
         print("[scheduler] 前置注册·写入:", {
             k: _scan.get(k) for k in
             ("ok", "scanned", "registered", "deduped", "judgeable", "error")})

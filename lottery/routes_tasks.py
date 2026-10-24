@@ -27,21 +27,41 @@ router = APIRouter()
 # ---------- 任务系统 ----------
 
 def _task_visible_to_current_user(task: Optional[dict]) -> bool:
-    """任务是否对当前请求者可见。
+    """任务是否对当前请求者可见（V36 修复，2026-10-24 审计 P0-2）。
 
-    ## 现状（诚实标注）
+    ## 曾经的写法（缺陷）
 
-    `tasks.user_id` 在迁移 8 里已经加好并回填，但**读路径还没按它过滤**。
-    原因：任务列表是**管理员运维视图**（`/api/tasks` 在 ADMIN_EXACT 里），
-    普通用户拿不到；而单用户使用场景下过滤等于没有过滤。
+    V35 及以前本函数恒 `return True`，注释解释为"任务列表是管理员运维视图，
+    普通用户拿不到，所以过滤等于没有过滤"。**这个推理是错的**：
+    `/api/tasks` 在 ADMIN_EXACT 里，但 `/api/tasks/{task_id}` **不在**
+    （`required_role` 按精确路径匹配，带 id 的路径落到 `"user"` 兜底）。
+    结果任何登录用户只要知道 task_id（`{kind}_{8hex}`，32 bit 可枚举）
+    就能读到别人 `result_json` 里的票单。审计已用 HTTP 实测复现（uid B 读 uid A → 200）。
 
-    一旦 `/api/tasks` 将来对普通用户开放，这里必须改成
-    `task["user_id"] == current_user_id()`，否则用户能看到别人的
-    任务产出（`result_json` 里可能有票单）。
+    ## 判定规则
 
-    把判断集中在这个函数里，就是为了让那次改动只有一个落点。
+    * 任务**无归属**（`user_id` 为 NULL/0）：视为系统/调度器产出，登录用户可见；
+      这与 `db.resolve_tenant` 的"显式 → 上下文 → 主管理员 → SYSTEM"不冲突，
+      因为 NULL 恰好表示"没有发起人"。
+    * 任务**有归属**：只有归属者本人可见。
+    * 无请求上下文（后台/测试直调）：只允许无归属任务，**绝不放行**有归属的。
+
+    管理员不在此处特判：`/api/tasks` 列表页已是 admin-only，单条读取按归属走，
+    管理员若需运维全景，应走列表接口而不是穿透单条。
     """
-    return True
+    if task is None:
+        return False
+    owner = task.get("user_id")
+    if owner in (None, 0, ""):
+        return True
+    from . import request_context
+    uid = request_context.current_user_id()
+    if uid is None:
+        return False
+    try:
+        return int(owner) == int(uid)
+    except (TypeError, ValueError):
+        return False
 
 
 @router.get("/api/tasks")

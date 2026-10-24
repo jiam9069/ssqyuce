@@ -52,9 +52,40 @@ _current_user_id: "contextvars.ContextVar[int | None]" = contextvars.ContextVar(
     "current_user_id", default=None)
 
 
+# 当前是否处在一次 HTTP 请求处理中（与"谁"无关，只管"有没有人"）。
+#
+# 为什么需要它（V36，2026-10-24 审计 P0-5）：
+#   `db.resolve_tenant` 有一条"主管理员兜底"，本意是救**后台线程不继承
+#   contextvars** 的场景。但 `current_user_id()` 返回 None 无法区分两种情形：
+#     (a) 后台线程，压根没有请求   → 兜底到管理员是合理的；
+#     (b) HTTP 请求，但没登录/没解析出身份 → 兜底到管理员 = **匿名冒认管理员**，
+#         实测可让匿名 `POST /api/predict?regenerate=1` 删改管理员票单。
+#   这个标记把 (a)(b) 分开。中间件在进入时置 True、finally 恢复。
+_in_request: "contextvars.ContextVar[bool]" = contextvars.ContextVar(
+    "in_request", default=False)
+
+
 def current_user_id():
     """供深层库读取当前用户；无上下文时返回 None（绝不回退 admin）。"""
     return _current_user_id.get()
+
+
+def in_request() -> bool:
+    """当前是否在处理一次 HTTP 请求（中间件进入时置 True）。"""
+    return _in_request.get()
+
+
+def set_in_request(flag: bool = True):
+    """标记"进入/离开一次 HTTP 请求"，返回 token 以便 reset。"""
+    return _in_request.set(bool(flag))
+
+
+def reset_in_request(token) -> None:
+    """恢复 `in_request` 标记（与 `set_in_request` 配对）。"""
+    try:
+        _in_request.reset(token)
+    except (ValueError, RuntimeError):
+        _in_request.set(False)
 
 
 def set_current_user_id(user_id):

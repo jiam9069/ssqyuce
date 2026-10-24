@@ -124,7 +124,7 @@ def _live_constants() -> Dict[str, Any]:
         out["sixth_mode"] = None
         errors["ev_single"] = f"{type(exc).__name__}: {exc}"
 
-    # 六等奖返奖比（恒 5/32，与注数无关）
+    # 六等奖返奖比（恒 5×P(红≤2)/32 ≈ 14.723%，与注数无关；V36 修正旧值 5/32）
     try:
         from . import blue_coverage as BC
         out["ev_sixth"] = round(float(BC.optimize(1)["ev_ratio_sixth"]), 6)
@@ -136,7 +136,8 @@ def _live_constants() -> Dict[str, Any]:
     out["sources"] = sources
     out["prize_assumption"] = dict(_PRIZE_ASSUMPTION)
     out["derivation_zh"] = {
-        "ev_sixth": "E[命中注数]=n/16，每注 ¥5，成本 2n ⇒ (n/16×5)/(2n)=5/32，n 被约掉。",
+        "ev_sixth": ("六等奖要求蓝中 **且** 红≤2 ⇒ 单注概率 P(红≤2)/16=0.0588925；"
+                     "n 注期望奖金 = n×该概率×5，成本 2n ⇒ 返奖比 = 5×P(红≤2)/32 ≈ 0.1472314，n 被约掉。"),
         "ev_single": "六奖级概率 × 奖金求和 ÷ 2 元成本；一/二等奖为浮动额，取实测中位。",
     }
     if errors:

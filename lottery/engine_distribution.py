@@ -34,6 +34,8 @@ from .engine_base import R_MAX, B_MAX, TICKET_COST  # noqa: F401  纯常量，�
 # **从真源直接取，不经薄壳 `E.`** —— 它们是常量不是函数，薄壳只做转发，
 # 绕一层没有收益，反而让依赖关系更难读。
 from .engine_prize import JACKPOT_ASSUMPTION, PRIZE_CASH_FIXED  # noqa: F401
+# V36：六等奖概率真源（P_SIXTH）用于 EV_RATIO_SIXTH，避免第二份近似常数。
+from .engine_prize import P_SIXTH as _EP_P_SIXTH  # noqa: F401
 
 # `_expand_dan_tuo` 要用硬约束过滤（胆拖展开时必须剔除违反约束的组合）。
 # 硬约束已随 S1 迁到 `engine_constraints.py`（真源），从这里直取。
@@ -80,7 +82,11 @@ E_HITS_PER_TICKET = RED_PER_TICKET * RED_PER_TICKET / float(R_MAX)   # 12/11
 VAR_RATIO_SLOPE = 11.0 / 54.0                   # 闭式斜率 (n-1)*(11/54)
 REDUNDANCY_NEUTRAL = 12.0 / 11.0                # Ā 中性值：var_ratio == 1
 REDUNDANCY_MAX = float(RED_PER_TICKET)          # Ā 的上界（两注完全相同）
-EV_RATIO_SIXTH = (5.0 / B_MAX) / TICKET_COST    # 0.15625（仅六等奖，与 n 无关）
+# 六等奖返奖比（V36 修正，2026-10-24 审计 P1-6）。
+# 旧值 `(5/16)/2 = 0.15625` 隐含"蓝中即得 5 元"，漏了官方六等奖的
+# 「红球命中 ≤ 2」这一条件。正确值：5 × P(红≤2)/16 / 2 = **0.1472314**。
+# 唯一真源 `engine_prize.P_SIXTH`（= P(红≤2)/16），此处只做换算，不再自推常数。
+EV_RATIO_SIXTH = (5.0 * _EP_P_SIXTH) / TICKET_COST
 
 # 奖金假设表（一/二等奖为浮动奖，只能给"假设常量"，必须随结果一起展示）
 PRIZE_ASSUMPTION_TABLE_A = {

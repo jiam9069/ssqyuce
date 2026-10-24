@@ -139,14 +139,15 @@ BACKUP_DATA_URL = (os.environ.get("LOTT_BACKUP_DATA_URL") or "").strip() or None
 
 # ---------- 版本信息（前端主页 / API / GitHub 说明统一引用） ----------
 
-APP_VERSION = "4.15.0"         # v35：移除随机性检验卡与数据管理页
+APP_VERSION = "4.16.0"         # v36：按 2026-10-24 审计修 5 条 P0
 
 # 单注 2 元（双色球官方单价，固定事实）。
 # 放在 config 而不是某个路由模块里：它被 evaluate / portfolio / rigor 共用，
 # 属于领域常量，不属于任何单个端点域。
 TICKET_PRICE = 2.0
-APP_BUILD = "2026-10-V35"      # 构建标识（V35 交付批次）
+APP_BUILD = "2026-10-V36"      # 构建标识（V36：审计 P0 修复批次）
 APP_MILESTONES = {
+    "V36": {"status": "done", "desc": "按 2026-10-24 四岗位并发审计（架构/数学/代码/测试）修复 5 条 P0。审计报告 docs/reviews/AUDIT_2026-10-24_SUMMARY.md，共 40 条缺陷（P0 5 / P1 17 / P2 18），本批次只修 P0 与不可分割的口径一致性。①**P0-1 六等奖判定错**（engine_prize.py:93）：`r==3 且蓝不中`（3红+0蓝，官方不中奖）被计入六等奖，六等奖概率虚增为 1/9（官方 1/17），单注 EV 高估 24.6%（¥1.2531 vs ¥1.0055）；同仓 evaluate.prize_level 判对了却无人对拍，而该处注释恰恰写着「与 evaluate.prize_level 完全一致」——教训：**注释不能当校验**。②**P0-2 跨租户 IDOR**（routes_tasks.py:44）：`_task_visible_to_current_user` 恒 True，`/api/tasks/{id}` 只要求 user 角色（ADMIN_EXACT 按精确路径匹配，带 id 的路径落到兜底），任意登录用户可读他人 result_json 票单；已 HTTP 实测复现（uid B 读 uid A → 200），修后 404。③**P0-3 /api/predict 无 CSRF**：GET+POST 同路由且 POST 会写库，enforce 下错误/缺失 token 均 200 并落库，而对照写端点 /api/user/llm/config 返回 403；现 POST 在 enforce 下强制 X-CSRF-Token，GET 保持只读不强制（否则打断所有只读前端调用）。④**P0-4 predict_next 非确定性**（engine.py:767）：`random.Random()` 未播种，同进程同输入两次票号不同（指纹 1be697ea vs ad1f33f1，差异 33 处）；更严重的是 evaluate.offline_backtest 的 seed 只喂给随机基线、没喂给引擎，导致同数据同 seed 两次回测 delta_red_hits = -0.0400 / -0.1133，跨过 hypothesis 判决阈值 |delta|≥0.05 ⇒ **判决可翻转**；现 config.PREDICT_SEED 固定种子 + 回测按每期派生独立子种子透传。⑤**P0-5 无会话请求冒认主管理员**（db.py:539）：AUTH_MODE=off 时中间件放行且不写 contextvar，resolve_tenant 兜底返回主管理员 uid ⇒ 匿名 POST /api/predict?regenerate=1 删改管理员票单；现新增 request_context.in_request 标记区分「无请求的后台线程」与「无身份的 HTTP 请求」，后者归 SYSTEM_USER_ID；compose 默认 LOTT_AUTH_MODE 由 off 改 enforce。配套修：⑥P1-5 sixth_ev_ratio 用 p_cover（≥1中蓝概率）而非期望命中注数 n/16，n=20/100 时低至 0.125/0.025，与 blue_coverage.py 2026-10-21 已修的是同一 bug 未同步；⑦P1-6 六等奖概率真源统一为 engine_prize.P_SIXTH（= P(红≤2)/16 = 0.0588925466），EV_RATIO_SIXTH 由 (5/16)/2=0.15625 修正为 0.1472314，blue_coverage/engine_distribution/engine_prize 三处引用同一常量——**审计报告里我最初写的 0.294463 漏除了 2 元成本，实现时已纠正并在注释留痕**；⑧P1-12 调度器断链：api_app.py:344 读 draws 而 :388 才赋值 ⇒ 必抛 NameError 被 except 吞掉，前置注册写入侧从未执行（而上方注释正宣告「这处断链已接通」），现就地取数；⑨P1-8 n_tickets 加 ge=1/le=100，此前 -3 → 200 + 0 注 + shortfall_reason=null。测试 1825 → 1848（全量 1848 passed / 24 skipped / 1 xfailed，耗时 399s；审计前基线是 1823 passed + 1 failed，耗时 1259s —— 修掉未播种 RNG 后指纹真值锁首次稳定，耗时也降了 68%）。"},
     "V35": {"status": "done", "desc": "移除「随机性检验」卡与「数据管理」页（用户 2026-10-24：「删除 主页上的『随机性检验』和『更多』里面的数据管理」）。删除内容：①#rigorCard「🎲 随机性检验」（V4）+ 四个渲染函数 loadRigor/renderRigorCard/renderRigorUnavailable/renderRigorSignal（共约 3,500 字符）；②#tab-data「⚙️ 数据管理」+ 抽屉入口 + 三个动作函数 refreshData/showTasks/showStats；③switchTab 的 VALID_TABS 由 [predict,eval,data,settings] 收为 [predict,eval,settings]。关键处理——**页脚声明保留但去掉跳转**：原 footer 有 `jumpToCard('rigorCard','predict')`，卡片删掉后点击无反应；改为 `<span class=\"footer-link\">随机性诚实声明</span>`（文字保留）。理由写进注释：删卡片 ≠ 删声明，声明是对用户的信息义务，不依附于某个面板；原注释「压成四个字等于没说」同理适用于整句删除。移除的是展示不是能力：后端 /api/rigor/randomness、/api/rigor/signal、/api/refresh **全部保留注册**，test_v35 明确断言这些端点必须仍在。踩到并修复的坑：①按大括号配对切函数时 `async ` 前缀留在原地 → `async async function`；连续删三次后累积成 `async async async`。先用正则批量清理，结果误删了合法函数的 async（`await` 报错），**立即从备份恢复**并改用「按行 + 括号配对」的保守切法，一次成功。这条教训已写进 commit：字符串/正则批量改 JS 前必须先 node --check，且不能对 async 这类修饰符做全局替换；②V29 的结构快照测试因 data 页移除而失效，已同步更新期望值。测试 1820 → 1825（新增 5 例，变异实证 2/2 抓红：卡片加回 HTML、footer 跳转加回）。"},
     "V34": {"status": "done", "desc": "主页移除三张卡（用户 2026-10-24 两轮指示：「去掉主页的『本期规律使用情况』，既然无法找到规律，挖掘就没有意义了」+「去掉主页的『前向回测』和『方差优化选号』」）。删除内容：①#ruleCard「🧩 本期规律使用情况」（V7）+ renderRuleUsage() 函数 3219 字符及其调用；②#walkForwardCard「🎯 前向回测」（V23）+ loadWalkForward()；③#variancePickCard「📐 方差优化选号」（V27）+ loadVariancePick() 及 vpRun/vpN 绑定。关键设计——**移除的是展示，不是审计能力**：后端 /api/rigor/walk_forward 与 /api/portfolio/variance-pick **保留注册且契约不变**（需要时仍可手动调用），测试 test_v34 明确断言这两条路由必须仍在，防止后续借'删前端'顺手删掉审计工具。踩到并修复的坑：①用大括号配对法切函数时，把 `async ` 前缀留在原地，导致 `async async function loadRigor` 语法错误 —— 已清理并以 node --check 验证；②renderRuleUsage 还有第二处调用（renderPredictions 内），首轮漏删 → ReferenceError 风险，已一并移除；③runClosedLoop 的 renderArea 回退到已删除的 #ruleBody，改为回退到 #rgLabBody（规律研究页实验区），无该区时传 null（runBackgroundTask 已支持）；④测试配额：首版 test_v34 用了 3 处 unsourced 文件读取断言 + test_v23 改写后从 1 增至 4，把 B_BASELINE 顶到 149；按项目纪律把 v34 结构压成**单个快照断言**、v23 四处合并为一处，最终降到 145，**同步下调 B_BASELINE 146 → 145**（下调本身即改造进度证据）。测试 1816 → 1820（v34 新增 4 例；v23 的 test_frontend_walk_forward_card_and_rendering 改写为 test_frontend_walk_forward_card_removed，语义反转）；变异实证 2/2 抓红（卡片加回 HTML、删除后端路由）。另修复：renderPredMeta 里仍有 2 处裸读 `r.usable`（已弃用别名），与 V14-A4 命名纪律冲突 —— 改为读 `usable_replayable`，并把标签从「可用」改成「可回放」，让 test_v14_naming_discipline 两条守卫继续有效。"},
     "V33": {"status": "done", "desc": "策略可区分性判据 —— 从「能不能预测」转向「什么条件下测得出来」（用户 2026-10-24：「抛开『能不能预测』，而是『在什么条件下，一个策略的表现在统计上能与其随机基线区分开』」）。V30/V31/V32 的局限是只对已测过的东西成立，无法指导任何后续决策；V33 给出**封闭公式 + 设计表**。数学基础（全恒等式）：H~Hypergeom(33,6,6)，E[H]=1.0909，Var[H]=0.7531；E[T]=n·1.0909；Var[T]=n·Var[H]·var_ratio；检出所需期数 P=((z_α+z_β)·sd(T)/(δ·n·E[H]))²。核心发现：①**效应量门槛**：≥20% 需 10 期(0.1年)可检出；10% 需 39 期(0.3年)；5% 需 156 期(1.0年)；2% 需 978 期(6.5年)；1.6%（V30 实测的超额）需 1,528 期(10.2年)；1% 需 3,913 期(26.1年)。**V30 那个 +1.61% 从一开始就不可能被证实——它低于现有 3518 期的检出下限 1.05%**，这独立佐证了 V30『它是估计偏差』的结论。②**反向能力边界**：3518 期×每期 10 注×独立票 → 最小可检出效应 1.05%（1 注 3.33%、5 注 1.49%、20 注 0.75%、50 注 0.47%）。任何预期效应低于此值的策略，在本系统上**永远无法被证伪**——不是『测出不显著』，而是『没有能力测』。③**var_ratio 是唯一人为杠杆（V27 的真正价值）**：var_ratio 1.0→0.26 使 sd 从 2.744 降到 1.399（−49%），**等价样本量放大 3.85 倍**：检出 1% 需期数 3,913→1,017；同样 3518 期可检出效应 1.05%→0.54%。V27 当时只说『不提高期望』，其实还有另一半：**方差优化提高了检验力**——一个 2% 的弱效应用独立票永远测不出，用最小方差票有可能测出。④**预算分配**：总注数固定时，注数/期 × 期数的各种组合给出**相同**可检出效应（互相抵消）；但若注数固定，观察 3518 期比 150 期可检出效应小 4.9 倍 → 优先延长观察期，其次降 var_ratio，最后才加注数。新增 GET /api/rigor/detectability：四块同屏（forward 正向期数/年数+三档结论句、reverse 反向能力边界、var_ratio_leverage 等价样本倍数、design_table 不同注数的可检出效应）；形参做 Query 归一（直接调用不 500）。报告 docs/analysis/V33_DETECTABILITY.md。测试 1806 → 1816（新增 10 例，3 组变异实证全部抓红；过程中发现并修复了一个真实测试缺陷：verdict 三档只测头尾会漏掉中间档被写死，已补中间档『不含1年内』断言）。"},
@@ -216,6 +217,18 @@ LLM_SAMPLES = int(os.environ.get("LOTT_LLM_SAMPLES", "3"))          # LLM 多轮
 TICKETS_PER_LLM_CALL = int(os.environ.get("LOTT_TICKETS_PER_CALL", "5"))
 # 最终输出注数（V11 用户要求：默认 5 注，可配置手动改个数）
 N_TICKETS = int(os.environ.get("LOTT_N_TICKETS", "5"))              # 最终输出注数（默认 5）
+# 出号随机种子（V36，2026-10-24 审计 P0-4）。
+#
+# 为什么必须固定：`engine.predict_next` 未传 rng 时原先用未播种的
+# `random.Random()`，导致同一期同一数据连跑两次票号不同；而离线回测
+# (`evaluate.offline_backtest`) 的 `seed` 只传给了随机基线、没传给引擎，
+# 于是同 seed 两次回测 `delta_red_hits` 会取 -0.04 / -0.11 两种值，
+# 恰好跨过 hypothesis 的 |delta| ≥ 0.05 判决阈值 ⇒ **同一份数据的结论翻转**。
+#
+# 固定种子的代价：同一天内多次请求会得到同样的票。这**不是缺陷**，
+# 因为「同一期、同一数据、同一模型」本就该给出同一个答案；重抽的需求
+# 由 `regenerate=True` + 显式传入不同 rng 表达，而不是靠熵。
+PREDICT_SEED = int(os.environ.get("LOTT_PREDICT_SEED", "20261024"))
 # V11 严格模式（用户 2026-10-18 指令）：
 #   1=开：出号**必须**由 LLM 分析规律完成；LLM 不可用或可用规律数为 0 时
 #       **拒绝出号**并返回明确错误（绝不静默降级到统计基线）。

@@ -17,6 +17,14 @@
 """
 from __future__ import annotations
 
+# V36（2026-10-24 审计 P1-6）：六等奖官方口径常量（独立算，不 import 被测模块）。
+# 官方六等奖 = 蓝中 **且** 红 ≤ 2；旧基准 0.15625 = 5/32 隐含"蓝中即中奖"，
+# 漏了红球条件（偏高 6.25%）。正确值 = 5×P(红≤2)/32 ≈ 0.1472314。
+from math import comb as _comb_v36
+P_RED_LE2_V36 = (_comb_v36(6, 0) * _comb_v36(27, 6) + _comb_v36(6, 1) * _comb_v36(27, 5)
+                 + _comb_v36(6, 2) * _comb_v36(27, 4)) / _comb_v36(33, 6)
+EV_RATIO_SIXTH_V36 = 5.0 * P_RED_LE2_V36 / 32.0
+
 import itertools
 import random
 
@@ -242,7 +250,7 @@ def test_c_ev_ratio_full_is_invariant_across_all_objectives_and_ticket_sets():
     若实现错误，本用例如何失败：
       * 若有人把"优化"实现在 EV 上（例如按覆盖加权、或把 ``ev_yuan`` 乘上
         结构因子）→ 不同目标的 ``ev_ratio_full`` 不再逐位相等 → 本用例失败；
-      * 若把 ``ev_ratio_sixth``（0.15625）误当整注 EV 返回 → 与
+      * 若把 ``ev_ratio_sixth``（0.1472314）误当整注 EV 返回 → 与
         0.45673239701760976 不等 → 失败；
       * 若求解器在返回值里**宣称**提高了 EV（``ev_ratio_note`` 含"提高期望"
         之类的肯定表述，或 ``search`` 里出现 ``ev_gain`` / ``expected_improvement``
@@ -302,7 +310,7 @@ def test_c_objectives_do_not_claim_ev_gain_through_p_any_blue():
     assert d_same["p_any_blue"] == pytest.approx(1 / 16, abs=1e-12)
     # 覆盖从 1/16 提到 10/16，但 EV 逐位不变（唯一诚实的结论）
     assert d_same["ev_ratio_full"] == d_spread["ev_ratio_full"] == res["ev_ratio_full"]
-    assert d_same["ev_ratio_sixth"] == d_spread["ev_ratio_sixth"] == pytest.approx(0.15625, abs=1e-15)
+    assert d_same["ev_ratio_sixth"] == d_spread["ev_ratio_sixth"] == pytest.approx(EV_RATIO_SIXTH_V36, abs=1e-6)
 
 
 # ===========================================================================

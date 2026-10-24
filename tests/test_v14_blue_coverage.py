@@ -13,6 +13,12 @@
 from __future__ import annotations
 
 import pytest
+from math import comb as _comb
+
+# V36：六等奖官方口径常量（独立算，不 import 被测模块）
+_P_RED_LE2 = (_comb(6, 0) * _comb(27, 6) + _comb(6, 1) * _comb(27, 5)
+              + _comb(6, 2) * _comb(27, 4)) / _comb(33, 6)
+EV_RATIO_SIXTH_OFFICIAL = 5.0 * _P_RED_LE2 / 32.0
 
 from lottery import blue_coverage as BC
 
@@ -83,7 +89,8 @@ def test_ev_ratio_is_constant_across_ticket_counts():
     """
     for n in range(1, 17):
         r = BC.optimize(n)
-        assert r["ev_ratio_sixth"] == pytest.approx(5 / 32, abs=1e-6), \
+        # V36：官方口径 = 5×P(红≤2)/32 ≈ 0.1472314（旧值 5/32 漏了"红球 ≤2"）
+    assert r["ev_ratio_sixth"] == pytest.approx(EV_RATIO_SIXTH_OFFICIAL, abs=1e-6), \
             f"n={n} 返奖比 {r['ev_ratio_sixth']} 偏离 0.15625"
 
 
@@ -106,8 +113,10 @@ def test_full_coverage_16_tickets_still_loses():
     r = BC.optimize(16)
     assert r["p_any_blue_covered"] == pytest.approx(1.0)
     assert r["cost_yuan"] == 32.0
-    assert r["ev_sixth_yuan"] == pytest.approx(5.0)
-    assert r["net_sixth_yuan"] == pytest.approx(-27.0)
+    # V36：16 注成本 32 元，官方口径期望回收 = 32 × 0.1472314 ≈ 4.7114
+    assert r["ev_sixth_yuan"] == pytest.approx(4.7114, abs=5e-4)
+    # V36：净亏 = 32 − 4.7114 = -27.2886（旧值 -27.0 基于错误的 5 元/注期望）
+    assert r["net_sixth_yuan"] == pytest.approx(-27.2886, abs=5e-4)
 
 
 def test_every_optimize_call_carries_disclosure():

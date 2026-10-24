@@ -14,6 +14,14 @@ docs/reviews/R1_ARCHITECTURE_REVIEW.md P0-5、S2_PLAN_FEASIBILITY_REVIEW.md P0-2
 """
 from __future__ import annotations
 
+# V36（2026-10-24 审计 P1-6）：六等奖官方口径常量（独立算，不 import 被测模块）。
+# 官方六等奖 = 蓝中 **且** 红 ≤ 2；旧基准 0.15625 = 5/32 隐含"蓝中即中奖"，
+# 漏了红球条件（偏高 6.25%）。正确值 = 5×P(红≤2)/32 ≈ 0.1472314。
+from math import comb as _comb_v36
+P_RED_LE2_V36 = (_comb_v36(6, 0) * _comb_v36(27, 6) + _comb_v36(6, 1) * _comb_v36(27, 5)
+                 + _comb_v36(6, 2) * _comb_v36(27, 4)) / _comb_v36(33, 6)
+EV_RATIO_SIXTH_V36 = 5.0 * P_RED_LE2_V36 / 32.0
+
 import inspect
 import json
 import random
@@ -271,24 +279,24 @@ def test_monte_carlo_is_reproducible_with_fixed_seed():
 # ===========================================================================
 
 def test_sixteen_distinct_blues_gives_certain_blue_hit_and_sixth_ev_ratio():
-    """16 注覆盖全部蓝球：p_any_blue == 1.0；ev_ratio_sixth 恒为 0.15625。"""
+    """16 注覆盖全部蓝球：p_any_blue == 1.0；ev_ratio_sixth 恒为 5×P(红≤2)/32 ≈ 0.1472314。"""
     tickets = [_t((1, 2, 3, 4, 5, 6), blue=b) for b in range(1, 17)]
     d = E.ticket_distribution(tickets, with_distribution_exact=False)
     assert d["p_any_blue"] == 1.0
     assert d["blue_coverage_count"] == 16
-    assert d["ev_ratio_sixth"] == pytest.approx(0.15625, abs=1e-15)
-    # 六等奖 EV 比与注数无关：1 注与 16 注都是 0.15625
+    assert d["ev_ratio_sixth"] == pytest.approx(EV_RATIO_SIXTH_V36, abs=1e-6)
+    # 六等奖 EV 比与注数无关：1 注与 16 注都是 0.1472314
     one = E.ticket_distribution([_t((1, 2, 3, 4, 5, 6))], with_distribution_exact=False)
     assert one["ev_ratio_sixth"] == pytest.approx(d["ev_ratio_sixth"], abs=1e-15)
 
 
 def test_ev_ratio_full_is_not_the_sixth_prize_number_and_carries_assumption():
-    """F8：ev_ratio_sixth(0.15625) 与 ev_ratio_full(≈0.4567) 是两个口径，必须并排给出。
+    """F8：ev_ratio_sixth(0.1472314) 与 ev_ratio_full(≈0.4567) 是两个口径，必须并排给出。
 
-    禁止裸 ``ev_ratio``：只给 0.15625 会让用户以为整体返奖率只有 15.6%。
+    禁止裸 ``ev_ratio``：只给 0.1472314 会让用户以为整体返奖率只有 15.6%。
     """
     d = E.ticket_distribution([_t((1, 2, 3, 4, 5, 6))], with_distribution_exact=False)
-    assert d["ev_ratio_sixth"] == pytest.approx(0.15625, abs=1e-15)
+    assert d["ev_ratio_sixth"] == pytest.approx(EV_RATIO_SIXTH_V36, abs=1e-6)
     assert d["ev_ratio_full"] == pytest.approx(0.45673239701760976, abs=1e-9)
     assert d["ev_ratio_full"] > 2.5 * d["ev_ratio_sixth"]
     assert isinstance(d["prize_assumption"], str) and "一等" in d["prize_assumption"]
@@ -592,7 +600,7 @@ def test_predict_next_coverage_metadata_includes_distribution():
     assert dist["n"] == len(res["tickets"])
     assert dist["p_at_least_r_method"] == "iid_approx"     # 热路径：近似且已标注
     assert dist["var_ratio"] >= 0.0
-    assert dist["ev_ratio_sixth"] == pytest.approx(0.15625, abs=1e-15)
+    assert dist["ev_ratio_sixth"] == pytest.approx(EV_RATIO_SIXTH_V36, abs=1e-6)
     assert dist["p_any_blue"] == pytest.approx(res["blue_covered"] / 16.0, abs=1e-9)
     # 非 coverage 模式不产出该元数据（保持 V4 结果契约不变）
     res2 = E2.predict_next(draws, use_llm=False, use_ml=False, n_tickets=4,

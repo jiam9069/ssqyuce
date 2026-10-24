@@ -21,7 +21,7 @@ import json
 import time
 from typing import Any, Dict, List, Optional, Sequence
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from . import config, db
@@ -355,17 +355,23 @@ def _strict_mode_reject_response(draws, issue):
 
 @router.api_route("/api/predict", methods=["GET", "POST"])
 def predict(use_llm: Optional[bool] = None,
-            n_tickets: Optional[int] = Query(None),
+            n_tickets: Optional[int] = Query(None, ge=1, le=100),
             regenerate: bool = False,
             bet_mode: Optional[str] = None,
             coverage: bool = False,
             coverage_r: Optional[int] = None,
-            allow_stat_fallback: int = Query(0, ge=0, le=1)):
+            allow_stat_fallback: int = Query(0, ge=0, le=1),
+            request: Request = None):
     """生成下一期预测；目标期已有预测且未要求重新生成时复用缓存。
 
     bet_mode: U2 投注模式 single / blue_compound / dan_tuo（None=跟随 LOTT_BET_MODE）。
     coverage: U4 覆盖优化（True 时做“至少命中 r 个红球”+蓝球覆盖组合优化）。
     coverage_r: coverage 模式目标红球命中数。
+
+    n_tickets（V36，2026-10-24 审计 P1-8）：加了 ``ge=1, le=100``。
+    此前是裸 ``Query(None)``，实测 ``n_tickets=-3`` → 200 + **0 注** +
+    ``shortfall_reason=null``（前端无从区分"生成失败"与"0 注"），
+    ``0/1/100000`` 则被下游静默钳成默认值 5。现在超范围直接 422。
 
     M4.5 快速失败：use_llm=true（前端勾选「使用大模型」）时 LLM 通道
     不可用/超时/输出异常，直接返回 503 + 明确错误信息（预测失败），
@@ -378,10 +384,34 @@ def predict(use_llm: Optional[bool] = None,
 
     为什么默认不让后端自己降级：严格模式的语义是"没有可复核的真凭实据就不出号"，
     静默降级恰好是它要禁止的事。要不要拿统计票，是用户的决定，不是实现者的。
+
+    CSRF（V36，2026-10-24 审计 P0-3）：本路由 **GET 与 POST 都会写库**
+    （`save_predictions`），而此前完全没有 CSRF 校验 —— 实测 enforce 模式下
+    错误 token 与缺失 token 均返回 200 并落库，与同为写端的
+    `/api/user/llm/config`（403）不一致，构成跨站伪造出号/写库。
+    现在：**仅 POST** 在 `AUTH_MODE=enforce` 时要求 `X-CSRF-Token`；
+    GET 保持只读语义不强制（若 GET 也要求，会打断所有只读前端调用与探活脚本）。
+    灰度期（off）不校验，与整站鉴权策略一致。
     """
     from . import backtest as BT, engine
     from . import methods as METH
     from .llm_client import LLMChannelError
+
+    # —— CSRF（只对写语义的 POST 生效）——
+    if request is not None and request.method.upper() == "POST" and config.auth_enforced():
+        from . import auth_api as _AA
+        _sess = _AA.session_from_request(request)
+        if _sess is not None and not _AA._csrf_ok(request, _sess):
+            _AA.auth.audit("authz.csrf_denied", actor_id=_sess["user"].get("user_id"),
+                           ip=_AA.client_ip(request), result="denied",
+                           detail={"path": "/api/predict"})
+            return JSONResponse({"ok": False,
+                                 "error": "该请求未通过 CSRF 校验。请刷新页面后重试"
+                                          "（前端会自动带上 X-CSRF-Token）；"
+                                          "若仍不行，请退出后重新登录。",
+                                 "csrf_required": True,
+                                 "action": "refresh_and_retry"}, status_code=403)
+
     draws = db.load_draws()
     if not draws:
         return JSONResponse({"ok": False, "error": "本地还没有开奖数据。请先抓取或导入历史开奖（详见部署文档「数据准备」一节），完成后再试。"}, status_code=400)

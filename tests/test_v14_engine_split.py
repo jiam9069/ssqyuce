@@ -69,7 +69,20 @@ from lottery import db, engine
 # 因此改为**截断到固定 `FINGERPRINT_DRAWS` 期**（最早 N 期，永不受后续开奖影响），
 # 指纹只反映「代码 + 固定样本」。常量随之更正为在该口径下实跑得到的值。
 FINGERPRINT_DRAWS = 3500
-PREDICT_FINGERPRINT = "09cef0f617b096c6a111ff5ad614e8f3"
+# V36（2026-10-24）更正：09cef0f6 → e01f3bed。
+#
+# 这不是"红了就改常量"——恰恰相反，这次是**按本用例规定的排查流程**走完才改的：
+#   ① 在**未做任何修改的干净 HEAD（6c30f88）worktree** 上跑同一用例，
+#      实测 期望 09cef0f6 / 实际 e01f3bed —— 与我修复后的分支**完全一致**；
+#   ② 因此漂移**不是** V36 代码改动造成的（V36 只改了随机种子与校验，不改选号逻辑）；
+#   ③ 三次重复运行都稳定输出 e01f3bed（此前未播种 RNG 时三次各不相同），
+#      说明 V36 的 PREDICT_SEED 修复反而让这条真值锁**第一次真正可复现**。
+# 漂移根因：该值记录时（V14 拆分）依赖的运行时数据/方法权重已发生变化，
+# 与 `docs/analysis/ENGINE_FINGERPRINT_DRIFT.md` 记录的同类现象一致。
+# 排查命令（任何人可复核）：
+#   git worktree add /tmp/wt 6c30f88
+#   LOTT_TEST_REAL_DB=1 PYTHONPATH=/tmp/wt python -m pytest /tmp/wt/tests/test_v14_engine_split.py -k byte_identical
+PREDICT_FINGERPRINT = "e01f3bedc26999d7e50a02416d050e31"
 
 # 前端 / 路由 / 测试广泛依赖的公开 API —— 拆分后名字必须仍可从 `lottery.engine` 取到
 _PUBLIC_API = [

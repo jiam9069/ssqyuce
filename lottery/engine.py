@@ -764,7 +764,17 @@ def predict_next(draws: List[Dict], use_llm: Optional[bool] = None,
     # U2：蓝球模式与运行命中率回退
     blue_blend = _apply_blue_mode(blue_blend)
 
-    rng = rng if rng is not None else random.Random()
+    # 播种（V36，2026-10-24 审计 P0-4）：
+    # 原先是 `rng = rng if rng is not None else random.Random()` —— 未播种的
+    # Random 以系统熵初始化，于是**同一期、同一份数据、同一进程内连跑两次，
+    # 票号都不同**（实测指纹 1be697ea… vs ad1f33f1…，差异 33 处，含
+    # tickets[0]/reds[*]）。后果远比"每次不一样"严重：
+    # `evaluate.offline_backtest` 造了 `random.Random(seed)` 却只喂给随机基线
+    # （:107），**没喂给 predict_next**（:99），所以系统组不可复现 ——
+    # 同数据同 seed 两次回测 delta_red_hits = -0.0400 vs -0.1133，
+    # 而 hypothesis 的判决阈值是 |delta| ≥ 0.05 ⇒ 判决可能翻转。
+    # 现改为固定种子，把"回测证据可复现"恢复成硬保证；显式传入的 rng 仍优先。
+    rng = rng if rng is not None else random.Random(config.PREDICT_SEED)
     candidates: List[Dict] = []
 
     # U3 自适应降权后的候选池：被大幅降权的方法不再产候选（production 且开启）

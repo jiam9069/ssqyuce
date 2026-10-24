@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
+from math import comb        # V36：模块级常量 P_SIXTH 需要在 import 期就可用
+
 from . import config      # noqa: F401  `.` = lottery，与拆前的 engine.py 完全相同
 from .engine_base import R_MAX, B_MAX, TICKET_COST  # noqa: F401  纯常量，无循环
 
@@ -40,6 +42,20 @@ def _ticket_cost() -> float:
     return TICKET_COST
 
 PRIZE_CASH_FIXED = {3: 3000.0, 4: 200.0, 5: 10.0, 6: 5.0}   # 固定奖级（元）
+
+# ---- 六等奖的唯一真源（V36，2026-10-24 审计 P1-5/P1-6）----
+#
+# 官方六等奖条件：**蓝球命中，且红球命中 0/1/2 个**（不是"蓝中即可"）。
+# 项目里曾出现两个都错的副本：
+#   * `engine_prize` 用"至少中一次蓝的概率"当期望注数（n>16 时低估）；
+#   * `engine_distribution.EV_RATIO_SIXTH = (5/16)/2 = 0.15625`（既非官方 0.294463，
+#     也非"仅蓝位"的 0.3125）。
+# 这里把概率算一次、算对，两处都引用它，避免再次各改一份。
+_SIXTH_CASH = 5.0                       # 六等奖固定奖金（元）
+_P_RED_LE2 = sum(comb(6, k) * comb(27, 6 - k) for k in (0, 1, 2)) / comb(33, 6)
+#: 六等奖中奖概率（≈0.0588925466 = 1/16.98）
+P_SIXTH = _P_RED_LE2 * (1.0 / 16.0)
+
 JACKPOT_ASSUMPTION = {
     "first": 6_500_000.0,    # 一等奖浮动奖假设（历史均值近似，非真实值）
     "second": 180_000.0,     # 二等奖浮动奖假设（历史均值近似，非真实值）
@@ -91,7 +107,13 @@ def expected_prize(reds: List[int], blue: int,
             prob_by_level[5] += p_r * (1.0 - p_blue)
         elif r == 3:
             prob_by_level[5] += p_r * p_blue
-            prob_by_level[6] += p_r * (1.0 - p_blue)
+            # ⚠ 3 红 + 蓝不中 **不中奖**（V36 修复，2026-10-24 审计 P0-1）。
+            #   此处原先写 `prob_by_level[6] += p_r * (1.0 - p_blue)`，把 3+0
+            #   当成六等奖，使六等奖概率从 1/17 虚增到 1/9、单注 EV 高估 24.6%，
+            #   且与 `evaluate.prize_level`（判 0，正确）自相矛盾——而上一行注释
+            #   恰恰写着「与 evaluate.prize_level 完全一致」。注释不能当校验用，
+            #   现在由 tests/test_v36_p0_audit_fixes.py 逐 (r, 蓝) 组合对拍钉住。
+            pass
         else:
             prob_by_level[6] += p_r * p_blue
     for lvl, p in prob_by_level.items():
@@ -148,9 +170,30 @@ def portfolio_expected_value(tickets: List[Dict],
         "blue_coverage_count": distinct,
         "blue_hit_prob": p_cover,
         "blue_hit_prob_naive": p_naive,
-        # 六等奖（蓝球命中 ¥5）期望返奖比：(5*p)/(2*n) —— 与 p/n 口径同构
-        "sixth_ev_ratio": (cash6 := 5.0) and ((cash6 * p_cover) / cost if cost > 0 else 0.0),
-        # 全部注单的奖级概率（取并集的上界近似：不同注之间不独立，此处按独立求和）
+        # 六等奖返奖比（V36 修复，2026-10-24 审计 P1-5）。
+        #
+        # 旧写法：`(5.0 * p_cover) / cost`，其中 p_cover = 不同蓝球数/16 是
+        # **「至少中一次蓝」的概率**，不是**期望命中注数**。两者在 n ≤ 16 时
+        # 数值恰好相同，只在 n > 16 分叉：p_cover 封顶 1.0 而期望注数仍按 n/16
+        # 增长。实测 n=1/16/20/100 → 0.15625 / 0.15625 / 0.125 / **0.025**，
+        # 即注数越多"返奖比"越假性地趋零。
+        # 这与 blue_coverage.py 在 2026-10-21 修掉的是**同一个 bug**（该文件
+        # 明确记录了"至少中一次"与"期望命中注数"不可混用的教训），只是当时
+        # 没同步到这个副本 —— 本次按 blue_coverage 的口径统一。
+        #
+        # 口径推导（务必看分母，第一版实现就在这里错过一次）：
+        #   期望六等奖注数 = n × P(蓝中) × P(红≤2) = n/16 × P_RED_LE2
+        #   期望奖金       = 5 × 上面那一项
+        #   返奖比         = 期望奖金 / 成本(2n) = 5 × P_RED_LE2 / 32
+        #                    = **0.1472314**（与 n 无关，n 被约掉）
+        #   等价的一个注数口径：P_SIXTH × 5 / TICKET_COST —— 同样是 0.1472314。
+        #   注意它不等于我在审计报告里写的 0.294463：那个数**漏了除以 2 注成本**
+        #   （0.294463 = 5×P_SIXTH，是"每 2 元成本"还是"每 1 元"的差别）。
+        #   以本文件的历史口径（返奖比 = 期望奖金 / 成本）为准，正确值是 0.1472314。
+        # n 被约掉这一点与 `blue_coverage.py` 的结论一致（"对任意 n 恒成立"），
+        # 变的只是常数：0.15625 → 0.1472314。
+        "sixth_ev_ratio": (_SIXTH_CASH * _P_RED_LE2 * (n / float(_b_max()))) / cost
+                          if cost > 0 else 0.0,        # 全部注单的奖级概率（取并集的上界近似：不同注之间不独立，此处按独立求和）
         "prize_prob_by_level": {k: v * n for k, v in one["prob_by_level"].items()},
         "prize_prob_by_level_note": "按各注独立求和的上界近似，非精确联合分布",
         "jackpot_assumption": one["jackpot_assumption"],

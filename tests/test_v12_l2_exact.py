@@ -16,6 +16,14 @@
 """
 from __future__ import annotations
 
+# V36（2026-10-24 审计 P1-6）：六等奖官方口径常量（独立算，不 import 被测模块）。
+# 官方六等奖 = 蓝中 **且** 红 ≤ 2；旧基准 0.15625 = 5/32 隐含"蓝中即中奖"，
+# 漏了红球条件（偏高 6.25%）。正确值 = 5×P(红≤2)/32 ≈ 0.1472314。
+from math import comb as _comb_v36
+P_RED_LE2_V36 = (_comb_v36(6, 0) * _comb_v36(27, 6) + _comb_v36(6, 1) * _comb_v36(27, 5)
+                 + _comb_v36(6, 2) * _comb_v36(27, 4)) / _comb_v36(33, 6)
+EV_RATIO_SIXTH_V36 = 5.0 * P_RED_LE2_V36 / 32.0
+
 import itertools
 import json
 import math
@@ -223,7 +231,7 @@ def test_a5_ev_ratio_full_identical_across_any_ticket_set():
     # ev_ratio_sixth 同理（只与蓝球边际概率有关，与注数/结构无关）
     for name, tickets in cases.items():
         d = E.ticket_distribution(tickets, with_distribution_exact=False)
-        assert d["ev_ratio_sixth"] == pytest.approx(0.15625, abs=1e-15), name
+        assert d["ev_ratio_sixth"] == pytest.approx(EV_RATIO_SIXTH_V36, abs=1e-6), name
 
 
 def test_a5_p_at_least_r4_does_not_exceed_iid_much():

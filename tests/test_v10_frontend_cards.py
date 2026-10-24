@@ -15,6 +15,14 @@
 """
 from __future__ import annotations
 
+# V36（2026-10-24 审计 P1-6）：六等奖官方口径常量（独立算，不 import 被测模块）。
+# 官方六等奖 = 蓝中 **且** 红 ≤ 2；旧基准 0.15625 = 5/32 隐含"蓝中即中奖"，
+# 漏了红球条件（偏高 6.25%）。正确值 = 5×P(红≤2)/32 ≈ 0.1472314。
+from math import comb as _comb_v36
+P_RED_LE2_V36 = (_comb_v36(6, 0) * _comb_v36(27, 6) + _comb_v36(6, 1) * _comb_v36(27, 5)
+                 + _comb_v36(6, 2) * _comb_v36(27, 4)) / _comb_v36(33, 6)
+EV_RATIO_SIXTH_V36 = 5.0 * P_RED_LE2_V36 / 32.0
+
 import json
 import re
 from pathlib import Path
@@ -104,9 +112,9 @@ def test_distribution_endpoint_ok_and_fields(client):
                 "var_T", "n_sigma1_sq", "var_ratio", "var_ratio_note",
                 "p_at_least_r_iid", "p_at_least_r_method"):
         assert key in d, f"ticket_distribution 缺少字段 {key}"
-    # 中性值必须是 12/11；仅六等奖返奖比恒为 0.15625
+    # 中性值必须是 12/11；仅六等奖返奖比恒为 0.1472314
     assert d["redundancy_neutral"] == pytest.approx(12 / 11)
-    assert d["ev_ratio_sixth"] == pytest.approx(0.15625)
+    assert d["ev_ratio_sixth"] == pytest.approx(EV_RATIO_SIXTH_V36, abs=1e-6)
     assert set(d["p_at_least_r"]) == {"3", "4", "5"}
 
 
@@ -117,7 +125,7 @@ def test_distribution_ev_is_distribution_invariant(client):
     ``ev_ratio_sixth`` / ``ev_ratio_full`` 必须完全相同，而 ``redudancy`` 必须不同。
     """
     a = client.get("/api/portfolio/distribution?exact=false").json()["distribution"]
-    assert a["ev_ratio_sixth"] == pytest.approx(0.15625)
+    assert a["ev_ratio_sixth"] == pytest.approx(EV_RATIO_SIXTH_V36, abs=1e-6)
     first_sixth, first_full = a["ev_ratio_sixth"], a["ev_ratio_full"]
 
     from lottery import engine as E
