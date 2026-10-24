@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>双色球号码组合分析系统</title>
-<link rel="stylesheet" href="/static/style.css?v=20261024.6">
+<link rel="stylesheet" href="/static/style.css?v=20261024.7">
 <!-- ECharts CDN + 本地 fallback -->
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
-  onerror="this.src='/static/vendor/echarts.min.js?v=20261024.6'"></script>
+  onerror="this.src='/static/vendor/echarts.min.js?v=20261024.7'"></script>
 </head>
 <body>
 <div class="app">
@@ -104,14 +104,6 @@
         <div class="card">
           <h2>🏆 历史战绩 <span class="tag" id="trackRecordTag">加载中…</span></h2>
           <div id="trackRecord"></div>
-        </div>
-
-        <!-- 随机性检验（V4）：回答「为什么准确率上不去」——数据与均匀随机不可区分，
-             且给出当前样本量下能检出的最小提升幅度。样本不足时明确不下结论。 -->
-        <div class="card" id="rigorCard">
-          <h2>🎲 随机性检验 <span class="tag" id="rigorTag">加载中…</span></h2>
-          <div id="rigorBody"></div>
-          <div class="note">双色球为独立随机事件，本系统不承诺中奖率。</div>
         </div>
       </section>
 
@@ -406,21 +398,7 @@
       </section>
 
       <!-- 数据管理 -->
-      <section id="tab-data" class="tab-panel">
-        <div class="card">
-          <h2>⚙️ 数据管理</h2>
-          <div class="data-actions">
-            <button onclick="refreshData()">⟳ 刷新开奖数据</button>
-            <button onclick="showTasks()">📋 任务列表</button>
-            <button onclick="showStats()">📈 统计摘要</button>
-          </div>
-          <div id="dataStatusArea"></div>
-          <div id="taskList" class="hidden"></div>
-          <div id="statsArea" class="hidden"></div>
-        </div>
-      </section>
-
-    <!-- 设置 -->
+      <!-- 设置 -->
       <section id="tab-settings" class="tab-panel">
         <div class="card">
           <h2>🔧 系统设置</h2>
@@ -557,7 +535,6 @@
     <div class="more-group">
       <div class="gtitle">⚙️ 系统</div>
       <button class="more-item" onclick="switchTab('eval')">📊 评估报告</button>
-      <button class="more-item" onclick="switchTab('data')">💾 数据管理</button>
       <button class="more-item" onclick="switchTab('settings')">🔧 设置</button>
       <button class="more-item" id="navUserAdmin" style="display:none"
               onclick="openUserAdmin()">👥 用户管理</button>
@@ -567,9 +544,11 @@
   
       <!-- footer：站名与 `<title>`、后端四处（__init__.py / api_app.py / cli.py /
            routes_data.py）保持同一口径 ——「号码组合分析系统」，不是「智能预测」。
-           「随机性诚实声明」保留为可点链接指向 #rigorCard（随机性检验卡）。
-           这句话是 footer 里唯一一句真话，压成四个字等于没说。 -->
-      <footer>双色球号码组合分析系统 <span class="badge badge-ver" id="verText">v4.14.0</span>（M1-M5 + U1-U9 + V4~V34 已上线 · L2 结构层/L3 决策层）· 仅供研究参考 · <a href="javascript:void(0)" class="footer-link" onclick="jumpToCard('rigorCard','predict')" title="双色球为独立随机事件：本系统不承诺中奖率，只做组合结构与概率口径的分析">随机性诚实声明</a> · 数据源 e.17500.cn</footer>
+           V35：`#rigorCard`（随机性检验卡）已按用户指示删除，
+           故「随机性诚实声明」不再跳转（原 jumpToCard 会指向不存在的元素）。
+           声明文字**保留**——它是 footer 里唯一一句真话，不因卡片删除而消失。
+           原话是「压成四个字等于没说」，删掉整句同理。 -->
+      <footer>双色球号码组合分析系统 <span class="badge badge-ver" id="verText">v4.15.0</span>（M1-M5 + U1-U9 + V4~V35 已上线 · L2 结构层/L3 决策层）· 仅供研究参考 · <span class="footer-link" title="双色球为独立随机事件：本系统不承诺中奖率，只做组合结构与概率口径的分析">随机性诚实声明</span> · 数据源 e.17500.cn</footer>
 </div>
 
 <!-- 号码详情弹窗（全局：任意 Tab 均可触发） -->
@@ -664,6 +643,6 @@
 </div>
 
 <div id="toast"></div>
-<script src="/static/app.js?v=20261024.6"></script>
+<script src="/static/app.js?v=20261024.7"></script>
 </body>
 </html>

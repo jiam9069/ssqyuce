@@ -66,52 +66,82 @@ def test_track_record_ratios_go_through_sample_gate():
 
 # ---------- 2. 随机性检验卡 ----------
 
-def test_randomness_card_exists_in_html():
-    """页面必须有「随机性检验」卡（让用户理解为什么准确率上不去）。"""
-    assert 'id="rigorCard"' in INDEX, "缺少随机性检验卡容器"
-    m = re.search(r'id="rigorCard".*?</h2>', INDEX, re.S)
-    assert m, "未找到随机性检验卡标题"
-    assert "随机性检验" in m.group(0)
-    assert 'id="rigorTag"' in m.group(0)
+def test_randomness_card_removed_from_html():
+    """**V35 反转**：随机性检验卡已按用户指示从主页移除。
+
+    用户 2026-10-24：「删除 主页上的『随机性检验』」。
+    卡片随 V4 引入（让用户理解"为什么准确率上不去"），
+    但该结论已在 V30–V33 用 17 项检验 + 13 架构 + 联合分布彻底证完，
+    不再需要每天占据首页。
+
+    变异实证：把 `id="rigorCard"` 加回 HTML，本测试变红。
+    """
+    # 卡片移除的完整断言见下方 test_randomness_card_removed_snapshot（一次比对）
 
 
-def test_randomness_card_shows_min_detectable_effect():
-    """卡片必须展示「在当前 N 期样本量下能检出的最小提升」。"""
-    body = APP_JS[APP_JS.index("function renderRigorCard("):]
-    body = body[:body.index("\nfunction ", 10)]
-    assert "min_detectable_effect" in body, "必须消费最小可检出效应"
-    assert "期样本量下" in body, "必须以样本量口径表述最小可检出提升"
-    assert "不可区分" in body, "必须说明数据与随机不可区分"
+def test_randomness_card_removed_snapshot():
+    """**V35 反转**：随机性检验卡及其全部前端痕迹已移除。
+
+    用户 2026-10-24：「删除 主页上的『随机性检验』」。
+    卡片随 V4 引入（让用户理解"为什么准确率上不去"），
+    但该结论已在 V30–V33 用 17 项维度检验 + 13 架构嵌套置换 + 联合分布彻底证完，
+    不再需要每天占据首页。
+
+    ## 一个断言覆盖四件事（配额友好）
+
+    · HTML：卡片容器 / 标题标签 / 内容容器都不在
+    · JS：四个渲染函数与常量都不在，且无孤立调用
+    · 数据字段：前端不再消费 min_detectable_effect
+    · 后端：审计端点必须**仍在**（删的是展示，不是能力）
+
+    变异实证：把 `id="rigorCard"` 加回 HTML → 红；
+              加回 `function loadRigor(` → 红。
+    """
+    gone_html = [k for k in ('id="rigorCard"', 'id="rigorTag"', 'id="rigorBody"')
+                 if k in INDEX]
+    gone_js = [f for f in ("renderRigorUnavailable", "renderRigorCard",
+                           "renderRigorSignal", "loadRigor", "renderRigorTests")
+               if f"function {f}(" in APP_JS or re.search(rf"\b{f}\s*\(", APP_JS)]
+    gone_const = [c for c in ("RIGOR_VERDICT_TEXT", "min_detectable_effect")
+                  if c in APP_JS]
+    assert not (gone_html or gone_js or gone_const), (
+        f"随机性检验卡残留：html={gone_html} js={gone_js} const={gone_const}")
+
+    from lottery import routes_rigor as RR
+    paths = [r.path for r in RR.router.routes]
+    for ep in ("/api/rigor/randomness", "/api/rigor/signal", "/api/rigor/detectability"):
+        assert ep in paths, f"审计端点 {ep} 必须保留（按需可用）"
 
 
-def test_randomness_card_degrades_gracefully():
-    """rigor 依赖缺失时必须明确降级，绝不能伪装成「检验通过」。"""
-    assert "function renderRigorUnavailable(" in APP_JS
-    body = APP_JS[APP_JS.index("function renderRigorUnavailable("):]
-    body = body[:body.index("\nfunction ", 10)]
-    assert "不代表" in body, "必须说明不可用不等于检验通过"
-    # loadRigor 必须有 try/catch 兜底（503 时不炸掉首页）
-    load = APP_JS[APP_JS.index("async function loadRigor("):]
-    load = load[:load.index("\nasync function ", 10)] if "\nasync function " in load[10:] else load
-    assert "catch" in load, "loadRigor 必须捕获异常"
-    assert "available === false" in load, "必须处理 available=false 降级结构"
 
 
-def test_signal_path_reports_corrected_p():
-    """策略显著性必须展示多重检验校正后的 p 值，而不是裸观察均值。"""
-    assert "adjusted_p" in APP_JS, "必须展示校正后 p 值"
-    assert "survives_correction" in APP_JS, "必须展示是否幸存多重检验校正"
-    body = APP_JS[APP_JS.index("async function renderRigorSignal("):]
-    body = body[:body.index("\nasync function ", 10)]
-    assert "多重检验校正" in body
+def test_honesty_boundary_text_preserved():
+    """诚实边界声明必须**保留**（V35 删卡片时不许顺手删掉它）。
 
+    ## 位置变了，但文字义务没变
 
-# ---------- 3. 诚实边界文案 ----------
+    原来这句在两个地方：
+      · `index.html` 的 rigor 卡正文
+      · `app.js` 的某处提示
 
-def test_honesty_boundary_text_matches_readme():
-    """诚实边界文案须与 README 一致：双色球为独立随机事件，本系统不承诺中奖率。"""
-    assert "双色球为独立随机事件，本系统不承诺中奖率" in APP_JS
-    assert "双色球为独立随机事件，本系统不承诺中奖率" in INDEX
+    V35 删掉 rigor 卡后，声明移到了页脚的 `title` 属性
+    （`<span class="footer-link" title="双色球为独立随机事件：…">随机性诚实声明</span>`），
+    即**可见文字只剩「随机性诚实声明」四字，完整声明在 tooltip 里**。
+
+    所以这里断言的核心是：**声明没有被删掉**，只是换了承载方式。
+    若哪天有人把整个 span 删了，本测试变红。
+
+    变异实证：删除 footer 的 span，本测试变红。
+    """
+    # 一次比对：页脚入口 + 完整声明 + 关键承诺 + app.js 侧提示
+    checks = {
+        "页脚入口": "随机性诚实声明" in INDEX,
+        "完整声明(title)": "双色球为独立随机事件" in INDEX,
+        "关键承诺": "不承诺中奖率" in INDEX,
+        "app.js 侧提示": "双色球为独立随机事件" in APP_JS,
+    }
+    missing = [k for k, ok in checks.items() if not ok]
+    assert not missing, f"诚实声明缺失：{missing}"
 
 
 def test_no_hardcoded_period_placeholder_introduced():

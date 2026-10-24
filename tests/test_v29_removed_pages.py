@@ -64,9 +64,10 @@ def test_v29_frontend_structure():
     """前端结构快照 —— 一个断言覆盖 6 条事实（配额友好，失败时 diff 直接定位）。"""
     snap = _frontend_snapshot()
     expected = {
-        "panels": ["predict", "eval", "data", "settings"],
-        "drawer_tabs": ["eval", "data", "settings"],
-        "valid_tabs": ["predict", "eval", "data", "settings"],
+        # V35：`data`（数据管理）也已按用户指示移除
+        "panels": ["predict", "eval", "settings"],
+        "drawer_tabs": ["eval", "settings"],
+        "valid_tabs": ["predict", "eval", "settings"],
         "whitelist_enforced": True,
         "switch_mentions_removed": [],
         "guards": {"renderPatterns": True, "renderStats": True,

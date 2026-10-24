@@ -559,7 +559,7 @@ function jumpToCard(cardId, tabName) {
 //: `#analysis` / `#patterns` / `#replay` 会命中一个不存在的 panel，
 //: `switchTab` 把所有 `.active` 都摘掉却不加回任何一个 ⇒ **整页白屏**。
 //: 未知 tab 一律回落 `predict`，并把 hash 纠正回来（否则用户刷新一次又白屏）。
-const VALID_TABS = ["predict", "eval", "data", "settings"];
+const VALID_TABS = ["predict", "eval", "settings"];   // V35：data 页已移除
 
 function switchTab(name) {
   if (!VALID_TABS.includes(name)) {
@@ -3365,62 +3365,6 @@ function renderLlmEval(rep) {
 
 // ==================== 数据管理 ====================
 
-async function refreshData() {
-  setBusy("#btnRefresh", "抓取中…");
-  try {
-    const r = await api("/api/refresh", {method:"POST"});
-    if (!r.ok) throw new Error(r.error || "刷新失败");
-    toast("新增 " + r.inserted_new + " 期，最大期号 " + r.local_max);
-    await loadAll();
-  } catch(e) { toast("刷新失败: " + e.message); }
-  setFree("#btnRefresh", "⟳ 刷新开奖数据");
-}
-
-async function showTasks() {
-  const area = $("#taskList");
-  area.classList.toggle("hidden");
-  if (area.classList.contains("hidden")) return;
-  try {
-    const tasks = await api("/api/tasks?limit=20");
-    area.innerHTML = tasks.length
-      ? '<table><thead><tr><th>ID</th><th>类型</th><th>状态</th><th>进度</th><th>消息</th><th>时间</th></tr></thead><tbody>' +
-        tasks.map(t => "<tr>" +
-          "<td class='mono'>" + t.id.slice(0,8) + "</td>" +
-          "<td>" + t.kind + "</td>" +
-          "<td>" + t.status + "</td>" +
-          "<td><div class='bar' style='width:60px'><i style='width:" + (t.progress*100) + "%'></i></div></td>" +
-          "<td style='color:var(--muted)'>" + escHtml(t.message || "") + "</td>" +
-          "<td class='mono'>" + new Date(t.created_at*1000).toLocaleTimeString() + "</td>" +
-        "</tr>").join("") +
-      "</tbody></table>"
-      : '<div class="note">暂无任务</div>';
-  } catch(e) { area.innerHTML = '<div class="note">加载失败</div>'; }
-}
-
-async function showStats() {
-  const area = $("#statsArea");
-  area.classList.toggle("hidden");
-  if (area.classList.contains("hidden")) return;
-  try {
-    const feat = await api("/api/features");
-    const w = feat.windows.long.red;
-    area.innerHTML =
-      '<div class="note">最新期号: ' + feat.issue + " (" + feat.date + ") | 红" + feat.last_reds.join(" ") + " 蓝" + feat.last_blue + '</div>' +
-      '<div class="metrics" style="margin-top:8px">' +
-        metricItem("历史期数", w.n_draws) +
-        metricItem("和值均值", w.sum_mean.toFixed(1)) +
-        metricItem("奇偶均值", w.odd_mean.toFixed(1)) +
-        metricItem("连号率", pct(w.consecutive_rate)) +
-        metricItem("同尾率", pct(w.same_tail_rate)) +
-        metricItem("重号均值", w.repeat_mean.toFixed(2)) +
-        metricItem("AC均值", w.ac_mean.toFixed(2)) +
-        metricItem("红球热号", (w.hot_top6 || []).join(",")) +
-        metricItem("红球冷号", (w.cold_top6 || []).join(",")) +
-        metricItem("红球遗漏TOP", (w.omit_top6 || []).join(",")) +
-      '</div>';
-  } catch(e) { area.innerHTML = '<div class="note">加载失败</div>'; }
-}
-
 // ==================== 挖掘 & 回测 ====================
 
 async function runBacktest() {
@@ -4444,126 +4388,6 @@ function renderTrackRecordError(e) {
     escHtml((e && e.message) || "未知错误") + '）。此处不代表样本为 0，请刷新重试。</div>';
 }
 
-// ==================== V4：随机性检验卡 ====================
-//
-// 这张卡回答用户最根本的疑问：「为什么准确率上不去」。
-// 结论来自 /api/rigor/randomness（后端 lottery/rigor.py）：
-//   · verdict —— 这批开奖数据与「均匀随机」是否可区分
-//   · min_detectable_effect —— 在当前 N 期样本量下，能检出的最小提升幅度
-// 关键口径：若数据与随机不可区分，那么任何「命中率高于理论值」都只是波动。
-// 依赖缺失 / 检验失败时降级为明确提示，绝不伪装成「已通过检验」。
-
-const RIGOR_VERDICT_TEXT = {
-  consistent_with_random: { t: "与均匀随机一致", cls: "ok" },
-  deviation:              { t: "检出偏离",       cls: "warn" },
-  insufficient_data:      { t: "样本不足，未结论", cls: "warn" },
-};
-
-function renderRigorCard(report) {
-  const el = $("#rigorBody");
-  const tag = $("#rigorTag");
-  if (!el) return;
-  const r = report || {};
-  const v = RIGOR_VERDICT_TEXT[r.verdict] || { t: r.verdict || "未知", cls: "" };
-  const n = Number(r.n_draws || r.n_valid || 0);
-  const mde = r.min_detectable_effect || {};
-  if (tag) tag.textContent = "n=" + n + " 期 · " + v.t;
-
-  const lift = (mde.relative_lift != null)
-    ? (Number(mde.relative_lift) * 100).toFixed(1) + "%"
-    : "-";
-  const hitPp = (mde.hit_rate_pp != null) ? Number(mde.hit_rate_pp).toFixed(2) : "-";
-
-  // 唯一的「结论句」：数据与随机不可区分 ⇒ 准确率上不去是数学事实，不是调参问题
-  const concl = (r.verdict === "consistent_with_random")
-    ? '这批开奖数据与「均匀随机」在统计上<b>不可区分</b>。因此本系统的「命中率」只是随机波动的读数——' +
-      '<b>准确率上不去不是调参问题，而是双色球本身没有可利用规律</b>。'
-    : (r.verdict === "deviation")
-      ? '本批数据检出了统计偏离（见下方检验明细）。偏离可能来自样本量、口径或数据本身，' +
-        '需在更多期数据上复核，<b>不足以支撑「系统能预测」的结论</b>。'
-      : '当前样本量下检验无法给出结论，请勿据下方比率判断系统能力。';
-
-  el.innerHTML =
-    '<div class="rigor-verdict">' +
-      '<span class="rigor-badge ' + v.cls + '">' + escHtml(v.t) + '</span>' +
-      '<span class="rigor-n">样本量 ' + n + ' 期</span>' +
-    '</div>' +
-    '<div class="track-note rigor-concl">' + concl + '</div>' +
-    '<div class="rigor-mde">在当前 <b>' + n + ' 期样本量下，能检出的最小提升</b>为：相对随机基线 ≥ <b>' + lift +
-      '</b>（命中率提升 ≥ ' + hitPp + ' 个百分点）才可能被检出（α=' + (r.alpha != null ? r.alpha : "-") +
-      '，功效 ' + (mde.power != null ? mde.power : "-") + '）。<br>' +
-      escHtml(mde.note_zh || "低于该幅度的「优势」与随机波动无法区分。") + '</div>' +
-    renderRigorTests(r.tests) +
-    '<div class="track-note">双色球为独立随机事件，本系统不承诺中奖率。' +
-      '检验方法：' + escHtml(r.method || "-") + '</div>';
-}
-
-function renderRigorTests(tests) {
-  if (!tests || typeof tests !== "object") return "";
-  const rows = Object.keys(tests).map(k => {
-    const t = tests[k] || {};
-    const p = (t.p_value != null) ? Number(t.p_value).toFixed(4) : "-";
-    const sig = (t.p_value != null && Number(t.p_value) < 0.05);
-    return '<tr><td>' + escHtml(k) + '</td><td>' + (t.statistic != null ? fmt(t.statistic, 3) : "-") +
-      '</td><td class="' + (sig ? "warn" : "") + '">' + p + '</td><td>' +
-      (sig ? "偏离" : "与随机一致") + '</td></tr>';
-  }).join("");
-  if (!rows) return "";
-  return '<details class="rigor-tests"><summary>检验明细（' + Object.keys(tests).length + ' 项）</summary>' +
-    '<div class="scroll"><table><thead><tr><th>检验</th><th>统计量</th><th>p 值</th><th>判定</th></tr></thead>' +
-    '<tbody>' + rows + '</tbody></table></div>' +
-    '<div class="note">p 值经多重检验校正后判定；单项 p&lt;0.05 在多项检验下属预期波动。</div></details>';
-}
-
-function renderRigorUnavailable(reason) {
-  const el = $("#rigorBody");
-  const tag = $("#rigorTag");
-  if (tag) tag.textContent = "检验模块未就绪";
-  if (el) el.innerHTML = '<div class="track-note">随机性检验暂不可用（' +
-    escHtml(reason || "依赖未就绪") + '）。这不代表「检验通过」，也不代表系统有能力；' +
-    '在检验可用前，请勿把任何命中率当作预测能力。</div>';
-}
-
-// 策略显著性：把「某方法看起来准」交给多重检验校正来判断
-async function renderRigorSignal(strategy, window) {
-  const el = $("#rigorSignal");
-  if (!el) return;
-  el.innerHTML = '<div class="track-note">检验中…</div>';
-  try {
-    const s = await api("/api/rigor/signal?strategy=" + encodeURIComponent(strategy) +
-                        "&window=" + encodeURIComponent(window));
-    const survives = !!s.survives_correction;
-    el.innerHTML =
-      '<div class="track-note">策略 <code>' + escHtml(strategy) + '</code> · 窗口 ' + (s.window || window) +
-        ' 期 · 对照 ' + (s.n_trials || 0) + ' 期<br>' +
-        '观察均值 ' + fmt(s.observed_mean, 4) + ' vs 随机基线 ' + fmt(s.baseline_mean, 4) +
-        '（相对 ' + ((s.relative_lift || 0) * 100).toFixed(2) + '%）<br>' +
-        '校正后 p = ' + (s.adjusted_p != null ? Number(s.adjusted_p).toFixed(4) : "-") + ' → ' +
-        (survives
-          ? '<b class="warn">在校正后仍显著</b>（仍需样本外复核）'
-          : '<b>未通过多重检验校正</b>：该「优势」与随机波动无法区分') +
-        (s.sample_note ? '<br>' + escHtml(s.sample_note) : '') + '</div>';
-  } catch (e) {
-    el.innerHTML = '<div class="track-note">显著性检验不可用（' +
-      escHtml((e && e.message) || "未知错误") + '）。不构成「通过检验」。</div>';
-  }
-}
-async function loadRigor() {
-  const card = $("#rigorCard");
-  try {
-    const rep = await api("/api/rigor/randomness");
-    if (rep && rep.available === false) {
-      renderRigorUnavailable(rep.error || "依赖未就绪");
-      return;
-    }
-    renderRigorCard(rep);
-    renderRigorSignal("hot", 100);
-  } catch (e) {
-    // 503（模块未就绪）/ 网络错误：明确降级，绝不静默当成「检验通过」
-    renderRigorUnavailable((e && e.message) || "未知错误");
-  }
-}
-
 // 首页「上期开奖回执」：
 //   ① 上期系统推荐的每一组号码 + 每注命中情况（红中 X/6 · 蓝 ✓/— · 奖级）
 //   ② 你在本机复制的注（localStorage myCopy）中了几块
@@ -4806,7 +4630,7 @@ async function loadAll() {
       if (health.version) {
         const ver = "v" + health.version;
         const vb = $("#verBadge"), vt = $("#verText");
-        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + " · v4.14.0 V34"; }
+        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + " · v4.15.0 V35"; }
         if (vt) vt.textContent = ver;
       }
     }
@@ -4822,7 +4646,6 @@ async function loadAll() {
       // 取数失败时明确告知，别让标题停在「加载中…」、更不要假装样本为 0
       renderTrackRecordError(e);
     }
-    loadRigor();   // V4：随机性检验卡（依赖缺失时自行降级，不影响其它区块）
   // V34：前向回测卡与方差优化选号卡已按用户指示从主页移除。
   // 对应的后端端点（/api/rigor/walk_forward、/api/portfolio/variance-pick）
   // **保留可用** —— 它们是审计工具，仍可在需要时手动调用，
