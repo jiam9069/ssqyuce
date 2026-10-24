@@ -965,3 +965,213 @@ def rigor_joint_distribution(
             "**未检出联合结构是最正常也最诚实的结果。**"
         ),
     })
+
+
+# ===========================================================================
+# V33：策略可区分性判据（不问"能不能预测"，问"什么条件下测得出来"）
+# ===========================================================================
+#
+# 用户 2026-10-24：「抛开『能不能预测』，而是『在什么条件下，一个策略的表现
+# 在统计上能与其随机基线区分开』」。
+#
+# 这是本轮最有价值的一次转向。前面 V30/V31/V32 都在问「有没有规律」，
+# 得到的是「没有」。但那个答案无法指导**任何**后续决策 ——
+# 它不能回答「如果真有，我该买多少注、观察多久才能发现」。
+#
+# 本端点给出**封闭公式**与**设计表**，任何人可以自己算。
+#
+# ## 数学基础（全部是恒等式）
+#
+#   单注命中数 H ~ Hypergeom(33, 6, 6)
+#   E[H]   = 6·6/33 = 1.0909
+#   Var[H] = 6·(6/33)·(27/33)·(27/32) = 0.7531
+#
+#   n 注票单的命中总数 T：
+#   E[T]   = n·E[H]                              （与选号无关）
+#   Var[T] = n·Var[H]·var_ratio
+#            var_ratio = Var[T]/(n·Var[H]) = 1+(n−1)(11/54)(Ā−12/11)
+#            独立随机票 var_ratio ≈ 1；V27 最小方差票 ≈ 0.26
+#
+#   检出效应 δ（相对基线）所需期数：
+#   P = ((z_α + z_β)·sd(T) / (δ·n·E[H]))²
+#
+# ## 最重要的发现：var_ratio 直接改变检验力
+#
+# 这一点 V27 当时没说清（只强调「不提高期望」）。实际效果：
+#   var_ratio 1.0 → 0.26  ⇒ sd 降 49% ⇒ **等价样本量放大 3.85 倍**
+#   检出 1% 效应所需期数：3,913 → 1,017
+#
+# 也就是说：**V27 的方差优化让整个系统更容易「发现真规律」，即使它不改变期望。**
+
+@router.get("/api/rigor/detectability")
+def rigor_detectability(
+    n_tickets: int = Query(10, ge=1, le=100,
+                           description="每期打算买几注"),
+    effect_pct: float = Query(5.0, gt=0, le=500,
+                              description="想检出的效应量（%）"),
+    var_ratio: float = Query(1.0, gt=0, le=10,
+                             description=("票单方差比。1.0=独立随机票；"
+                                          "0.26≈V27 最小方差票（可从 /api/portfolio/variance-pick 取）")),
+    alpha: float = Query(0.05, gt=0, lt=0.5, description="显著性水平（单侧）"),
+    power: float = Query(0.80, gt=0.5, lt=0.999, description="检验力"),
+):
+    """**一个策略需要多强，才能在现有数据上被统计地区分出来？**
+
+    ## 反过来问的三件事
+
+    ```
+    ① 给定效应量 → 需要多少期 / 多少年？
+    ② 给定现有 3518 期 → 能检出多弱的效应？
+    ③ 给定总预算 → 怎么分配注数/期数最优？
+    ```
+
+    ## 为什么这个端点比"有没有规律"更有用
+
+    V30/V31/V32 回答「没有规律」，但那只对**已经测过的东西**成立。
+    本端点给出的是**任何未来策略的门槛**：
+
+    · 若你的新想法预期效应 < 1%，在 3518 期上**永远测不出来**
+      （需要 26 年以上），无论它多精妙
+    · 若预期效应 >= 20%，1 年内就能验证
+    · 中间地带（5%~10%）需要 4~16 年
+
+    ## var_ratio：唯一能人为改善的杠杆
+
+    独立随机票 var_ratio ≈ 1.0。V27 的最小方差票实测 ≈ 0.26：
+
+    ```
+    sd(T) 从 2.744 降到 1.399（−49%）
+    检出 1% 效应所需期数：3,913 → 1,017
+    ```
+
+    **这是 V27 的真实理论价值**——它不改变期望，但让「发现真规律」从不可能变成可能。
+
+    ## 判据纪律
+
+    · 效应量是**相对基线**（1.0909 个/期）的比例，不是绝对命中数
+    · 单侧检验（策略是否**优于**随机），不是双侧
+    · 期数按双色球 150 期/年折算
+    """
+    import math as _math
+
+    # 直接调用（非 HTTP）时形参仍是 Query 默认对象 —— 必须归一，否则算不了数。
+    # 本项目多条路由都有同一形态（V30/V31/V32 均如此），此处显式处理以免 500。
+    def _num(v, default):
+        return float(v) if isinstance(v, (int, float)) else float(default)
+
+    n_tickets = int(_num(n_tickets, 10))
+    effect_pct = _num(effect_pct, 5.0)
+    var_ratio = _num(var_ratio, 1.0)
+    alpha = _num(alpha, 0.05)
+    power = _num(power, 0.80)
+
+    e1 = 6 * 6 / 33
+    var1 = 6 * (6 / 33) * (1 - 6 / 33) * (33 - 6) / (33 - 1)
+
+    # 正态分位（避免 scipy 依赖）
+    def _z(p: float) -> float:
+        lo, hi = 0.0, 8.0
+        for _ in range(90):
+            mid = (lo + hi) / 2
+            if 0.5 * (1 + _math.erf(mid / _math.sqrt(2))) < p:
+                lo = mid
+            else:
+                hi = mid
+        return (lo + hi) / 2
+
+    z_a = _z(1 - alpha)          # 单侧
+    z_b = _z(power)
+
+    sd_t = _math.sqrt(n_tickets * var1 * var_ratio)
+    delta_abs = (effect_pct / 100.0) * n_tickets * e1
+    n_periods = ((z_a + z_b) * sd_t / delta_abs) ** 2 if delta_abs > 0 else float("inf")
+
+    # 反向：给定 3518 期能检出多弱
+    N_HAVE = 3518
+    min_effect_have = (z_a + z_b) * sd_t / _math.sqrt(N_HAVE) / (n_tickets * e1) * 100
+
+    # 对照：独立随机票 vs 当前配置
+    sd_ind = _math.sqrt(n_tickets * var1 * 1.0)
+    n_ind = ((z_a + z_b) * sd_ind / delta_abs) ** 2 if delta_abs > 0 else float("inf")
+    power_gain = (n_ind / n_periods) if n_periods and n_periods != float("inf") else 1.0
+
+    # 设计表：不同注数下的最小可检出效应（固定期数 = 现有数据量）
+    table = []
+    for nt in (1, 2, 5, 10, 20, 50):
+        sd = _math.sqrt(nt * var1 * var_ratio)
+        e = (z_a + z_b) * sd / _math.sqrt(N_HAVE) / (nt * e1) * 100
+        table.append({"n_tickets": nt,
+                      "min_detectable_effect_pct": round(e, 2)})
+
+    years = n_periods / 150 if n_periods != float("inf") else None
+
+    if years is None:
+        verdict = "效应量为 0，无法计算"
+    elif years <= 1:
+        verdict = (f"**1 年内可检出**：{n_periods:,.0f} 期（{years:.2f} 年）。"
+                   f"这样的效应量（{effect_pct}%）意味着机械偏置明显，物理上不太可能。")
+    elif years <= 5:
+        verdict = (f"**需要 {years:.1f} 年**：{n_periods:,.0f} 期。"
+                   f"在可接受的研究周期内，但要注意这期间摇奖设备可能更换。")
+    elif years <= 30:
+        verdict = (f"**需要 {years:.0f} 年**：{n_periods:,.0f} 期。"
+                   f"超出多数研究的耐心，且跨越设备换代，结论难以迁移。")
+    else:
+        verdict = (f"**事实上不可验证**：{n_periods:,.0f} 期（{years:.0f} 年）。"
+                   f"任何声称能检出 {effect_pct}% 效应的方法，都无法用真实数据证伪。")
+
+    return _jsonable({
+        "ok": True,
+        "params": {
+            "n_tickets": n_tickets,
+            "effect_pct": effect_pct,
+            "var_ratio": round(var_ratio, 3),
+            "alpha": alpha,
+            "power": power,
+        },
+        "constants": {
+            "E_hits_per_ticket": round(e1, 4),
+            "Var_hits_per_ticket": round(var1, 4),
+            "sd_T_per_period": round(sd_t, 4),
+        },
+        "forward": {
+            "periods_needed": round(n_periods, 0) if n_periods != float("inf") else None,
+            "years_needed": round(years, 1) if years is not None else None,
+            "verdict_zh": verdict,
+        },
+        "reverse": {
+            "n_draws_available": N_HAVE,
+            "min_detectable_effect_pct": round(min_effect_have, 2),
+            "note_zh": (f"用现有 {N_HAVE} 期、每期 {n_tickets} 注、"
+                        f"var_ratio={var_ratio:.2f}，最小可检出效应是 "
+                        f"**{min_effect_have:.2f}%**。"
+                        f"任何预期效应低于此值的策略，都无法在本系统上被证伪。"),
+        },
+        "var_ratio_leverage": {
+            "independent_baseline": 1.0,
+            "periods_if_independent": round(n_ind, 0) if n_ind != float("inf") else None,
+            "periods_if_current": round(n_periods, 0) if n_periods != float("inf") else None,
+            "equivalent_sample_multiplier": round(power_gain, 2),
+            "note_zh": ("**这是 V27 方差优化的真实理论价值。** "
+                        "var_ratio 从 1.0 降到 0.26 会把 sd 压低 49%，"
+                        "等价于样本量放大 3.85 倍 —— "
+                        "它不改变期望，但让『发现真规律』从不可能变成可能。"),
+        },
+        "design_table": {
+            "fixed_draws": N_HAVE,
+            "rows": table,
+            "note_zh": ("固定现有数据量，不同注数下的最小可检出效应。"
+                        "注数越多，单期噪声相对越小，可检出效应越低 —— "
+                        "但边际收益递减（注数 ×10 只换来效应下限 ÷3.2）。"),
+        },
+        "benchmarks_v30": [
+            {"claim": "freq 方法的『超额』", "effect_pct": 1.61,
+             "detectable_in_draws": round(n_periods, 0) if n_periods != float("inf") else None},
+        ],
+        "honesty_zh": (
+            "本端点只做**设计计算**，不评价任何具体策略的优劣。"
+            "所有公式来自超几何分布与正态近似的恒等式，任何人可复算。"
+            "**效应量的估计本身可能是错的**——本端点回答的是"
+            "『若效应真有这么大，能不能测出来』，不是『效应有多大』。"
+        ),
+    })
