@@ -325,6 +325,30 @@ def upsert_draws(draws: Iterable[Dict]) -> int:
     return n
 
 
+def upsert_draws_detailed(draws: Iterable[Dict]) -> Dict[str, int]:
+    """同 `upsert_draws`，但如实区分「新插入」与「覆盖已有」（V38，P2）。
+
+    ## 为什么需要它
+
+    `upsert_draws` 返回的是**遍历计数**（处理了多少行），而 `INSERT OR REPLACE`
+    每次都会"成功"，于是上层把返回值当成"新增了几期"报给用户 ——
+    重复抓同一份数据时，界面上会显示"新增 3518 期"，而实际一期都没变。
+    这个数字会直接影响"数据是否落后"的判断，错了会误导排查方向。
+
+    做法：先查出已有的 issue 集合（一次查询），再逐行判断。
+    代价是一次 SELECT；draws 表只有小几千行、issue 有索引，可忽略。
+    """
+    rows = list(draws)
+    if not rows:
+        return {"processed": 0, "inserted": 0, "updated": 0}
+    known = {r[0] for r in
+             get_conn().execute("SELECT issue FROM draws").fetchall()}
+    inserted = sum(1 for d in rows if d["issue"] not in known)
+    processed = upsert_draws(rows)
+    return {"processed": processed, "inserted": inserted,
+            "updated": processed - inserted}
+
+
 def save_reconcile_run(result: Dict, secondary_url: str = "") -> int:
     """保存一次对账审计结果；只记录结果，不改变 draws。"""
     status = "ok" if result.get("ok") else str(result.get("status") or "mismatch")
@@ -437,21 +461,59 @@ def save_features(issue: str, payload: dict):
 # ---------- patterns ----------
 
 def save_pattern_results(results: List[Dict]):
+    """批量写入规律结果。
+
+    ## V38（2026-10-24 审计 P2）：异常必须 rollback，否则事务与写锁滞留
+
+    Python 的 sqlite3 在**第一条 DML 前隐式开事务**，需要显式 commit 才清理。
+    旧实现在循环里逐条 `execute`、循环后才 `commit()` —— 若中途某条
+    `r["key"]` KeyError（数据结构不对/上游少字段），异常直接抛出，
+    **commit 永不执行、也没有 rollback**，于是：
+
+    * 该线程的连接上留着一个**开着的写事务**，持有 SQLite 的写锁；
+    * 这个连接是 thread-local 的，会被后续请求复用 ——
+      下一次操作仍在这个事务里，直到某处 commit 把**这一批的半成品
+      连同后续写入一起提交**（部分数据永久落库，且没人知道）。
+
+    修法：整批放进 savepoint，失败即回滚；并在入口校验必要字段，
+    让"数据不对"变成一条明确的 ValueError，而不是半路 KeyError。
+    """
+    if not results:
+        return
+    # 入口校验：缺字段应当在写任何东西之前就失败（fail fast）。
+    required = ("key", "name_zh", "kind", "grade", "sample_size",
+                "margin", "p_value", "direction")
+    for i, r in enumerate(results):
+        missing = [k for k in required if k not in r]
+        if missing:
+            raise ValueError(
+                f"第 {i} 条规律缺少必需字段 {missing}。"
+                "请检查规律生成侧的返回结构，修好后重试；本次未写入任何数据。")
+
     conn = get_conn()
     now = time.time()
-    for r in results:
-        conn.execute(
-            """INSERT OR REPLACE INTO patterns
-               (key,name_zh,kind,desc,params,grade,sample_size,margin,p_value,p_adj,direction,backtest_json,updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (
-                r["key"], r["name_zh"], r["kind"], r.get("desc", ""),
-                json.dumps(r.get("params", {}), ensure_ascii=False),
-                r["grade"], r["sample_size"], r["margin"], r["p_value"],
-                r.get("p_adj", r["p_value"]), r["direction"],
-                json.dumps(r.get("backtest", {}), ensure_ascii=False), now,
-            ),
-        )
+    conn.execute("SAVEPOINT save_pattern_results")
+    try:
+        for r in results:
+            conn.execute(
+                """INSERT OR REPLACE INTO patterns
+                   (key,name_zh,kind,desc,params,grade,sample_size,margin,
+                    p_value,p_adj,direction,backtest_json,updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    r["key"], r["name_zh"], r["kind"], r.get("desc", ""),
+                    json.dumps(r.get("params", {}), ensure_ascii=False),
+                    r["grade"], r["sample_size"], r["margin"], r["p_value"],
+                    r.get("p_adj", r["p_value"]), r["direction"],
+                    json.dumps(r.get("backtest", {}), ensure_ascii=False), now,
+                ),
+            )
+    except Exception:
+        # 回滚到 savepoint 并释放它 —— 绝不把半成品留在事务里
+        conn.execute("ROLLBACK TO savepoint save_pattern_results")
+        conn.execute("RELEASE savepoint save_pattern_results")
+        raise
+    conn.execute("RELEASE savepoint save_pattern_results")
     conn.commit()
 
 

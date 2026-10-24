@@ -515,6 +515,24 @@ def chat(system: str, user: str, max_tokens: int = 2000,
         api_key = config.LLM_API_KEY
         model = config.LLM_MODEL_LIST[0]
     else:
+        # V38（2026-10-24 审计 P2）：**必需字段缺失要给可执行错误，不能 KeyError → 500**。
+        #
+        # 用户配置是任意 JSON（`/api/user/llm/config` 接受 dict），只要漏了
+        # `model` / `base_url` / `api_key` 里任何一个，这里就会抛 KeyError，
+        # 上层 except 成 500「预测引擎异常: KeyError」—— 用户完全不知道要改什么。
+        # 而"配了一半"是极常见的中间状态（先填地址、还没来得及填模型名）。
+        _missing = [k for k in ("base_url", "model", "api_key")
+                    if not str(model_cfg.get(k) or "").strip()]
+        if _missing:
+            msg = (f"LLM 配置不完整：缺少 {'、'.join(_missing)}。"
+                   "请到设置页补齐这三项（地址/模型名/API Key）后重试；"
+                   "或先取消勾选「使用大模型」，改用统计模式出号。")
+            bill = _bill_new(str(model_cfg.get("model") or ""), _purpose)
+            _bill_finish(bill, ok=False, error="incomplete_config")
+            if strict:
+                raise LLMChannelError(msg)
+            print("[llm] " + msg + "，降级为纯统计模型")
+            return None
         base_url = str(model_cfg["base_url"]).rstrip("/")
         # P1-2（V36，2026-10-24 审计）：**发请求前的最后一道闸**。
         # 只在校验保存侧不够 —— 历史已存配置、管理员全局通道、将来任何

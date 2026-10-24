@@ -111,9 +111,26 @@ def auth_enforced() -> bool:
 # 会话 Cookie 名。`__Host-` 前缀是浏览器强制的加固：必须 Secure + Path=/ + 无 Domain，
 # 因此子域无法覆盖它（防"子域写入同名 Cookie"的会话固定攻击）。
 # 本地纯 http 调试时浏览器不存 Secure Cookie，可用 LOTT_COOKIE_NAME=ssq_sid 临时降级。
-SESSION_COOKIE_NAME = (os.environ.get("LOTT_COOKIE_NAME") or "__Host-ssq_sid").strip()
+_cookie_name_raw = (os.environ.get("LOTT_COOKIE_NAME") or "__Host-ssq_sid").strip()
 # Cookie 的 Secure 属性。生产（nginx 443）必须 True；本地 http 联调可设 0。
 SESSION_COOKIE_SECURE = (os.environ.get("LOTT_COOKIE_SECURE") or "1").strip() == "1"
+
+# V38（2026-10-24 审计 P2）：`__Host-` 前缀与 Secure=0 是**互斥**组合，
+# 浏览器会**静默丢弃**这种 cookie —— 表现为"登录接口返回 200，但下一个请求
+# 仍是未登录"，而且控制台没有任何报错，是最难排查的一类配置错误。
+#
+# 曾有人按注释"本地 http 联调可设 0"操作，忘了同时改 Cookie 名，于是：
+#   Set-Cookie: __Host-ssq_sid=...; Secure=缺  → 浏览器拒收
+#   → 登录"成功"但永远进不去。
+#
+# 现在自动纠正：Secure=0 时把 `__Host-` 前缀去掉（保留 ssq_sid 语义），
+# 并在启动日志里明说一次，避免"我明明配了却没生效"。
+if not SESSION_COOKIE_SECURE and _cookie_name_raw.startswith("__Host-"):
+    SESSION_COOKIE_NAME = _cookie_name_raw[len("__Host-"):]
+    COOKIE_NAME_AUTO_ADJUSTED = True
+else:
+    SESSION_COOKIE_NAME = _cookie_name_raw
+    COOKIE_NAME_AUTO_ADJUSTED = False
 
 
 # ---------- W01（多用户改造 P0 部署前置）----------
@@ -139,14 +156,15 @@ BACKUP_DATA_URL = (os.environ.get("LOTT_BACKUP_DATA_URL") or "").strip() or None
 
 # ---------- 版本信息（前端主页 / API / GitHub 说明统一引用） ----------
 
-APP_VERSION = "4.17.0"         # v37：按 2026-10-24 审计修安全/工程类 P1
+APP_VERSION = "4.18.0"         # v38：按 2026-10-24 审计修 P2 批次
 
 # 单注 2 元（双色球官方单价，固定事实）。
 # 放在 config 而不是某个路由模块里：它被 evaluate / portfolio / rigor 共用，
 # 属于领域常量，不属于任何单个端点域。
 TICKET_PRICE = 2.0
-APP_BUILD = "2026-10-V37"      # 构建标识（V37：审计 P1 修复批次）
+APP_BUILD = "2026-10-V38"      # 构建标识（V38：审计 P2 修复批次）
 APP_MILESTONES = {
+    "V38": {"status": "done", "desc": "按 2026-10-24 审计修复 P2 批次（7 条 + 路由清单守卫）。①**P2 事务泄漏**（db.save_pattern_results）：Python sqlite3 在首条 DML 前隐式开事务，旧实现循环后 commit、中途异常既不 commit 也不 rollback ⇒ 该线程 thread-local 连接上留着**开着的写事务持锁**，下一次 commit 会把这一批半成品连同后续写入一起提交（部分数据永久落库且无人知）。修法：整批 SAVEPOINT + 失败 ROLLBACK/RELEASE + 入口字段校验（缺字段在写任何数据前抛明确 ValueError）。**过程中抓到自己写的假绿**：第一版用例传「缺字段」数据，但入口校验在执行前就拦下、根本走不到 savepoint —— 把回滚整段删掉用例依然 3 passed。改为制造**执行期**失败（params 里放 object()，过得了校验但 json.dumps 时 TypeError），变异随即变红。这条教训值得记：测「异常处理」必须让异常真的发生在被处理的那一层。②**P2 返回值语义**（upsert_draws）：返回的是遍历计数，而 INSERT OR REPLACE 每次都成功 ⇒ 重复抓同一份数据会报『新增 3518 期』而实际零变化，直接误导『数据是否落后』的判断。新增 upsert_draws_detailed 用一次 SELECT 区分 inserted/updated，data_fetcher 改用该口径并新增 updated_existing 字段。③**P2 cookie 配置陷阱**：`__Host-` 前缀要求 Secure，而 `LOTT_COOKIE_SECURE=0` 与默认 cookie 名是**互斥组合**——浏览器**静默丢弃**该 cookie，表现为『登录 200 但下个请求仍未登录』且控制台无任何报错，是最难排查的一类。现自动去前缀（Secure=0 时用 ssq_sid）并置 COOKIE_NAME_AUTO_ADJUSTED 标记。④**P2 Brier 分解接口误用**：Murphy 恒等式前提是 y∈{0,1}；传非二值（如 0.5）时恒等式破裂（实测 y=[0.5] 时 brier=0 而 rel−res+unc=0.25，gap=−0.25）——一个看起来『分数很好』的结果其实是误用产物。加二值校验，二值输入下恒等式精确到 1e-16。⑤**P2 randomness_report 顶层 verdict 会被误读**：它是**单项未校正**口径，实测同一份数据 verdict=deviation 而 verdict_fwer=consistent-with-random（N=3517 时纯随机也有 37% 概率出现至少一次假阳性）。保留原语义（向后兼容）但新增 verdict_is_uncorrected / verdict_authoritative_field / verdict_note_zh 三个标注字段，指明做整体结论必须读 verdict_fwer。⑥**P2 LLM 配置缺字段→500**：用户配置是任意 JSON，漏 model/base_url/api_key 任一项会 KeyError 被兜成 500『预测引擎异常: KeyError』，用户不知道要改什么。改为给可执行错误（指出缺哪项 + 指向设置页 + 提供改用统计模式的出路），并记 unsafe/不完整到账单。⑦**解析器容错**：parse_text 任一行坏数据即整批作废（上游掺一行 HTML 报错页就让几千期全废，表现为『刷新后一期都没有』），改为默认跳过并回报坏行、strict=True 保留旧语义、**全坏行仍抛错**（那更像源改版）。⑧**路由清单守卫**（新 tests/test_v38_route_inventory.py）：用 app.openapi()['paths']（曾误用 app.routes，当前 FastAPI 把 include_router 包成 _IncludedRouter 且 path=None ⇒ 20 个对象一个都取不到路径，『看起来在检查、实际零覆盖』）对撞前端 fetch 的静态路径；另加核心端点存在性检查。测试 1884 → 1903（新增 19 例；变异实证 M2/M3/M4 全抓红）。"},
     "V37": {"status": "done", "desc": "按 2026-10-24 审计修复安全与工程类 P1（9 条）。①**P1-1 登录阻塞事件循环**：`auth_login` 是 async def 却在协程体内同步跑 scrypt（32MB / 145~550ms），实测冻结整站，且登录**匿名可达**。`_hash_sem`（最并发 4）只限内存峰值、不限事件循环阻塞 —— 正确但不相干。修法：新增 `_offload()`（默认 executor，与同步路由共用同一个池，不另建第二套），把 6 处 scrypt 调用（登录校验、dummy 探针哈希、改密、引导建号、管理员重置、管理员建号）全部挪出 loop。A/B 实测（真 uvicorn + /api/auth/me 心跳）：修前最大断档 282ms、修后 130ms（基线 p95 96ms），差值恰为一次 scrypt。②**P1-2 认证后 SSRF + 响应体回显**：用户可写任意 base_url，服务器主动 POST，错误路径把 `HTTP {code}: {r.text[:200]}` 经 503 回传 ⇒ 盲打变可读响应。新增 `lottery/url_guard.py`：拒 file/gopher 等协议、拒字面量内网与保留地址（含 100.64/10 CGNAT、169.254.169.254、IPv4-mapped IPv6）、拒云元数据主机名、域名解析任一 IP 内网即拒；**两处校验**（保存侧给即时反馈、`chat()` 发请求前是真实边界）；新增 `_redact_echo()` 只保留 JSON 错误 message，其余折叠。过程中修正了自己的一次过度 fail-closed：**解析失败不等于不安全** —— 第一版把 DNS 查询失败也判拒绝，导致无 DNS 环境下 `https://a.example.com` 保存直接 400（CI 里看起来像产品坏了），改为『能确认内网才拒，无法确认放行给下一道闸』。③**P1-3 降权不失效会话**：改 role 未撤销会话，而 require_csrf/`/api/auth/me`/_require_admin 读的是缓存快照（TTL 30s）⇒ 被降权者 ≤30s 内旧会话仍写着 role=admin。补 `revoke_user_sessions + invalidate_session_cache`，与 set_status 同口径（此前只有它在撤，口径不一致）。④**P1-4 文档端点泄露存在性**：`/docs` `/openapi.json` `/redoc` 关闭时被鉴权层判成 user → 401（=告诉扫描器』存在但没登录』），改由 `DOCS_PATHS + _docs_disabled()` 放行到路由层自然 404。⑤**P1-9 配置三方漂移**：`LOTT_SCHEDULER` 代码默认 0 / compose 默认 1 ⇒ 『python 直接跑』与』compose 跑』是两个系统；统一为 1；`.env.example` **整段缺** W08 鉴权键（AUTH_MODE/MASTER_KEY/BOOTSTRAP_TOKEN/SESSION_TTL/COOKIE_*），按 example 部署会得到『看起来配好、实际没鉴权』的实例，已补齐并加 LOTT_LLM_ALLOW_PRIVATE_URL / LOTT_PREDICT_SEED 说明。⑥**P1-10 后台线程连接泄漏**：`_bg_run` 每个任务起一次性线程，thread-local 连接从不关闭，滞留 fd 并拖慢 WAL checkpoint；finally 里 `db.close()`（语义正是』关当前线程连接』，安全）。⑦**P1-13 重计算端点无并发保护**：此前只有登录限流。新增 `lottery/concurrency.py` 信号量闸门（**限在飞数量而非速率** —— 速率限制挡不住『每 10 秒发 20 个并发』，而 CPU 是被在飞数量吃满的），按领域分桶、拿不到立即 503+Retry-After（不排队，排队会让全部超时）；探活/静态/鉴权不在名单（healthcheck 必须永远可达）。⑧**P1-11 依赖方向守卫只守一条**：原测试只禁』底层 import api_app『，`evaluate→engine` 等裸奔，制造』依赖已受控』错觉。改为按 L0~L4 **分层表**逐模块检查上行依赖，并加两条元守卫（分层表必须覆盖全部模块，否则新模块静默逃过；KNOWN_UPWARD 白名单不许留过期条目）。分层按**实测依赖结构**校准而非按名字猜：llm_client/methods/features/models 被十余个领域模块引用，标成上层会报十几个假违规 —— 那描述的不是设计问题而是分组错。登记 4 条真实债务：evaluate→engine、battle→engine、db→evaluate（结算）、llm_client→user_llm_store（记账）。⑨**P1-14 LLM 失败期污染配对检验**：llm_eval 在 LLM 失败期用 stat 输出顶替并计入 stat_llm，差值恒 0 ⇒ 配对均值被往 0 拉、p 值往『无差异』推，系统性掩盖 LLM 劣绩；改为整对剔除失败期，并新增 `paired_issues_excluding_llm_failures` 披露实际参与配对的期数。测试 1848 → 1884（新增 tests/test_v37_p1_audit_fixes.py 33 例；全量 1884 passed / 24 skipped / 1 xfailed，444s；变异实证：分层守卫注入 L1→L4 违规能抓红）。"},
     "V36": {"status": "done", "desc": "按 2026-10-24 四岗位并发审计（架构/数学/代码/测试）修复 5 条 P0。审计报告 docs/reviews/AUDIT_2026-10-24_SUMMARY.md，共 40 条缺陷（P0 5 / P1 17 / P2 18），本批次只修 P0 与不可分割的口径一致性。①**P0-1 六等奖判定错**（engine_prize.py:93）：`r==3 且蓝不中`（3红+0蓝，官方不中奖）被计入六等奖，六等奖概率虚增为 1/9（官方 1/17），单注 EV 高估 24.6%（¥1.2531 vs ¥1.0055）；同仓 evaluate.prize_level 判对了却无人对拍，而该处注释恰恰写着「与 evaluate.prize_level 完全一致」——教训：**注释不能当校验**。②**P0-2 跨租户 IDOR**（routes_tasks.py:44）：`_task_visible_to_current_user` 恒 True，`/api/tasks/{id}` 只要求 user 角色（ADMIN_EXACT 按精确路径匹配，带 id 的路径落到兜底），任意登录用户可读他人 result_json 票单；已 HTTP 实测复现（uid B 读 uid A → 200），修后 404。③**P0-3 /api/predict 无 CSRF**：GET+POST 同路由且 POST 会写库，enforce 下错误/缺失 token 均 200 并落库，而对照写端点 /api/user/llm/config 返回 403；现 POST 在 enforce 下强制 X-CSRF-Token，GET 保持只读不强制（否则打断所有只读前端调用）。④**P0-4 predict_next 非确定性**（engine.py:767）：`random.Random()` 未播种，同进程同输入两次票号不同（指纹 1be697ea vs ad1f33f1，差异 33 处）；更严重的是 evaluate.offline_backtest 的 seed 只喂给随机基线、没喂给引擎，导致同数据同 seed 两次回测 delta_red_hits = -0.0400 / -0.1133，跨过 hypothesis 判决阈值 |delta|≥0.05 ⇒ **判决可翻转**；现 config.PREDICT_SEED 固定种子 + 回测按每期派生独立子种子透传。⑤**P0-5 无会话请求冒认主管理员**（db.py:539）：AUTH_MODE=off 时中间件放行且不写 contextvar，resolve_tenant 兜底返回主管理员 uid ⇒ 匿名 POST /api/predict?regenerate=1 删改管理员票单；现新增 request_context.in_request 标记区分「无请求的后台线程」与「无身份的 HTTP 请求」，后者归 SYSTEM_USER_ID；compose 默认 LOTT_AUTH_MODE 由 off 改 enforce。配套修：⑥P1-5 sixth_ev_ratio 用 p_cover（≥1中蓝概率）而非期望命中注数 n/16，n=20/100 时低至 0.125/0.025，与 blue_coverage.py 2026-10-21 已修的是同一 bug 未同步；⑦P1-6 六等奖概率真源统一为 engine_prize.P_SIXTH（= P(红≤2)/16 = 0.0588925466），EV_RATIO_SIXTH 由 (5/16)/2=0.15625 修正为 0.1472314，blue_coverage/engine_distribution/engine_prize 三处引用同一常量——**审计报告里我最初写的 0.294463 漏除了 2 元成本，实现时已纠正并在注释留痕**；⑧P1-12 调度器断链：api_app.py:344 读 draws 而 :388 才赋值 ⇒ 必抛 NameError 被 except 吞掉，前置注册写入侧从未执行（而上方注释正宣告「这处断链已接通」），现就地取数；⑨P1-8 n_tickets 加 ge=1/le=100，此前 -3 → 200 + 0 注 + shortfall_reason=null。测试 1825 → 1848（全量 1848 passed / 24 skipped / 1 xfailed，耗时 399s；审计前基线是 1823 passed + 1 failed，耗时 1259s —— 修掉未播种 RNG 后指纹真值锁首次稳定，耗时也降了 68%）。"},
     "V35": {"status": "done", "desc": "移除「随机性检验」卡与「数据管理」页（用户 2026-10-24：「删除 主页上的『随机性检验』和『更多』里面的数据管理」）。删除内容：①#rigorCard「🎲 随机性检验」（V4）+ 四个渲染函数 loadRigor/renderRigorCard/renderRigorUnavailable/renderRigorSignal（共约 3,500 字符）；②#tab-data「⚙️ 数据管理」+ 抽屉入口 + 三个动作函数 refreshData/showTasks/showStats；③switchTab 的 VALID_TABS 由 [predict,eval,data,settings] 收为 [predict,eval,settings]。关键处理——**页脚声明保留但去掉跳转**：原 footer 有 `jumpToCard('rigorCard','predict')`，卡片删掉后点击无反应；改为 `<span class=\"footer-link\">随机性诚实声明</span>`（文字保留）。理由写进注释：删卡片 ≠ 删声明，声明是对用户的信息义务，不依附于某个面板；原注释「压成四个字等于没说」同理适用于整句删除。移除的是展示不是能力：后端 /api/rigor/randomness、/api/rigor/signal、/api/refresh **全部保留注册**，test_v35 明确断言这些端点必须仍在。踩到并修复的坑：①按大括号配对切函数时 `async ` 前缀留在原地 → `async async function`；连续删三次后累积成 `async async async`。先用正则批量清理，结果误删了合法函数的 async（`await` 报错），**立即从备份恢复**并改用「按行 + 括号配对」的保守切法，一次成功。这条教训已写进 commit：字符串/正则批量改 JS 前必须先 node --check，且不能对 async 这类修饰符做全局替换；②V29 的结构快照测试因 data 页移除而失效，已同步更新期望值。测试 1820 → 1825（新增 5 例，变异实证 2/2 抓红：卡片加回 HTML、footer 跳转加回）。"},

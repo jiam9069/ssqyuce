@@ -680,6 +680,19 @@ def randomness_report(draws: List[Dict], alpha: float = 0.05) -> Dict:
         f"{1 - (1 - alpha) ** len(verdicts):.1%} 的概率至少出现一项假阳性；"
         "把单项 p 值送入 benjamini_hochberg() 做 FDR 校正后再下结论。"
     )
+    # V38（2026-10-24 审计 P2）：顶层 `verdict` 是**未校正**的单项口径，
+    # 在纯随机数据上也有相当概率报 "deviation"（实测 N=3517 时确实如此）。
+    # 它保留原语义（向后兼容），但必须**显式标注**，否则任何读 `verdict`
+    # 的下游（前端卡片、脚本、外部调用者）都会得到一个偏激进且未校正的结论。
+    base["verdict_is_uncorrected"] = True
+    base["verdict_authoritative_field"] = "verdict_fwer"
+    base["verdict_note_zh"] = (
+        f"顶层 `verdict` 是**单项未校正**判定（alpha={alpha}），"
+        f"在纯随机数据上也有 {1 - (1 - alpha) ** max(1, len(verdicts)):.1%} 的概率"
+        "至少出现一次假阳性；**要做『这份数据整体是否偏离随机』的结论，"
+        "请读 `verdict_fwer`（Bonferroni 家庭化校正后）**。"
+        "两者不一致时以 verdict_fwer 为准。"
+    )
     return base
 
 

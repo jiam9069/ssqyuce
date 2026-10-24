@@ -273,7 +273,21 @@ def _brier_decomposition(p: np.ndarray, y: np.ndarray, n_bins: int = 10) -> Dict
     """Murphy 分解的**精确**实现（内部用，不做四舍五入，供自洽断言）。"""
     p = np.clip(np.asarray(p, dtype=float), 1e-6, 1 - 1e-6)
     y = np.asarray(y, dtype=float)
+    # V38（2026-10-24 审计 P2）：**校验 y 是二值**。
+    #
+    # Murphy 分解 `brier = reliability - resolution + uncertainty` 的推导前提是
+    # y ∈ {0,1}（uncertainty = ō(1−ō) 只在二值时是"基准预测的 Brier"）。
+    # 若传进 0/1 之外的值（例如 0.5，或误把概率当真值），恒等式会**破裂**：
+    # 实测 y=[0.5] 时 brier=0 而 rel−res+unc=0.25，gap=−0.25 ——
+    # 一个看起来"分数很好"的结果，实际是接口被误用的产物。
+    # 二值输入下恒等式精确到 1e-16（已实测），所以这里只挡非二值。
     n = len(y)
+    if n and not np.all((y == 0) | (y == 1)):
+        bad = np.unique(y[(y != 0) & (y != 1)])[:5]
+        raise ValueError(
+            f"Brier 分解的 y 必须是二值 0/1，收到 {bad.tolist()} 之类取值。"
+            "请确认传入的是真实标签而不是概率；若确实要评概率预测，"
+            "请改用连续型评分（如 log score），该分解不适用。")
     if n == 0:
         return {"brier": 0.0, "reliability": 0.0, "resolution": 0.0,
                 "uncertainty": 0.0, "brier_sample": 0.0, "n": 0}

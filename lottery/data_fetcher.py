@@ -36,7 +36,11 @@ def update_from_text(text: str) -> dict:
     if not draws:
         raise ValueError("数据源为空")
     local_max_before = db.max_issue()
-    n_new = db.upsert_draws(draws)
+    # V38（P2）：必须区分「新插入」与「覆盖已有」。
+    # 旧写法拿 upsert_draws 的遍历计数当"新增期数"，重复抓同一份数据时
+    # 会报"新增 3518 期"而实际零变化，直接误导"数据是否落后"的判断。
+    _det = db.upsert_draws_detailed(draws)
+    n_new = _det["inserted"]
     remote_issues = {d["issue"] for d in draws}
     # 「补回了几期」= 源站有、而本次入库前本地本来没有的期号
     local_before = {d["issue"] for d in db.load_draws()}
@@ -50,6 +54,7 @@ def update_from_text(text: str) -> dict:
         "local_max": local_max,
         "local_max_before": local_max_before,
         "inserted_new": n_new,
+        "updated_existing": _det["updated"],
         # 这批里本地原先**没有**的期号（含补回的漏抓期）
         "backfilled": backfilled,
         "backfilled_n": len(backfilled),
