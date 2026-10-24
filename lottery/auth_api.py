@@ -28,10 +28,38 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+import asyncio
+import functools
+
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from . import auth, config
+
+
+async def _offload(fn, *args, **kwargs):
+    """把**阻塞 CPU** 的工作挪出事件循环（V36，2026-10-24 审计 P1-1）。
+
+    ## 为什么必须挪
+
+    `auth_login` 是 `async def`，而 scrypt 是纯 CPU 的同步调用（32MB / 145-550ms 每次）。
+    在协程体里直接调用它，会**冻结整个事件循环**：所有并发请求（包括容器 healthcheck
+    的 `/api/health`）都要排队等这一次哈希算完。实测单次登录造成 heartbeat 最大间隔
+    550ms；而登录接口**匿名可达**，并发打几次就能把整站拖到不可用。
+
+    `_hash_sem`（最并发 4）只限制了内存峰值，**没有**限制事件循环被阻塞 ——
+    那是个正确但不相干的设计：它防的是 32MB × N 把内存打爆，不是防冻结。
+
+    ## 为什么用默认 executor
+
+    不另建线程池：默认 executor 与 FastAPI 给同步路由用的**是同一个**，
+    因此「并发上限」由同一个池统一约束，不会出现两套池互相打架。
+    阻塞调用挪过去后，事件循环可以继续处理别的请求。
+
+    `functools.partial` 用于传关键字参数（`run_in_executor` 只接受位置参数）。
+    """
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, functools.partial(fn, *args, **kwargs))
 
 router = APIRouter()
 
@@ -57,6 +85,23 @@ PUBLIC_EXACT = frozenset({
 })
 
 PUBLIC_PREFIX = ("/static/",)
+
+#: 文档端点（V36，2026-10-24 审计 P1-4）。
+#:
+#: 这些路径在 `LOTT_API_DOCS=0`（默认）时 FastAPI **根本不注册**，
+#: 但鉴权中间件跑在路由之前 —— 于是它们会先被判定成 "user"，未登录返回 401。
+#: 401 等于告诉扫描器「这个路径存在，只是你没登录」；而真实情况是它不存在。
+#: 现在显式把它们归为「不存在」，中间件放行后由路由层自然给 404。
+#: 注意：仅当文档确实关闭时才这样处理 —— 若运维显式开启文档，
+#: 它们就该按普通 user 资源受保护（`_docs_disabled()` 里判断）。
+DOCS_PATHS = frozenset({"/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"})
+
+
+def _docs_disabled() -> bool:
+    try:
+        return not bool(config.API_DOCS_ENABLED)
+    except Exception:          # noqa: BLE001
+        return True
 
 # 管理员专用（危险写操作 / 全局配置 / 花真金白银的端点）
 ADMIN_EXACT = frozenset({
@@ -103,6 +148,10 @@ def required_role(path: str) -> Optional[str]:
     **纯函数**：不读全局状态、不碰 DB —— 因此可以被参数化测试完整覆盖。
     """
     if path in PUBLIC_EXACT or path.startswith(PUBLIC_PREFIX):
+        return None
+    # V36（P1-4）：文档关闭时，这些路径**不存在**，不该由鉴权层回 401。
+    # 放行 → 路由层自然 404，与"随机不存在的路径"表现一致，不泄露存在性。
+    if path in DOCS_PATHS and _docs_disabled():
         return None
     if path.startswith(ADMIN_PREFIX) or path in ADMIN_EXACT:
         return "admin"
@@ -243,8 +292,11 @@ async def auth_login(request: Request):
 
     user = auth.get_user_by_username(username)
     if user is None:
-        # 仍走一次哈希，避免"用户不存在"因耗时更短而被时序侧信道枚举
-        auth.verify_password(password, auth.hash_password("dummy-placeholder"))
+        # 仍走一次哈希，避免"用户不存在"因耗时更短而被时序侧信道枚举。
+        # P1-1：探针哈希同样必须挪出事件循环（它也是 145~550ms 的 CPU 活）。
+        # 两次 scrypt 都要 offload：hash_password 生成探针串同样是 145~550ms 的 CPU 活。
+        _dummy = await _offload(auth.hash_password, "dummy-placeholder")
+        await _offload(auth.verify_password, password, _dummy)
         auth.audit("auth.login_failed", actor_name=username, ip=ip,
                    result="failed", detail={"reason": "no_such_user"})
         return _err("用户名或口令错误", code=401)
@@ -255,7 +307,9 @@ async def auth_login(request: Request):
                    detail={"reason": "locked"})
         return _err("账号已被临时锁定，请稍后再试或联系管理员", code=423)
 
-    ok, needs_rehash = auth.verify_password(password, user.get("password_hash"))
+    # P1-1：阻塞的 scrypt 校验挪到线程池，否则整站被这一次登录冻结
+    ok, needs_rehash = await _offload(
+        auth.verify_password, password, user.get("password_hash"))
     if not ok:
         auth.record_login_failure(user["user_id"])
         auth.audit("auth.login_failed", actor_name=username, ip=ip,
@@ -275,7 +329,9 @@ async def auth_login(request: Request):
     if needs_rehash:
         # 参数升级：登录成功时顺手重算（PHC 串的向前兼容价值就在这）
         try:
-            auth.set_password(user["user_id"], password, action="user.password_change")
+            # P1-1：set_password 内部同样跑 scrypt，必须 offload
+            await _offload(auth.set_password, user["user_id"], password,
+                           action="user.password_change")
         except Exception:  # noqa: BLE001
             pass
 
@@ -322,7 +378,8 @@ async def auth_change_password(request: Request):
     new_pw = str(payload.get("new_password") or "")
     user = sess["user"]
 
-    ok, _ = auth.verify_password(old_pw, user.get("password_hash"))
+    # P1-1：scrypt 校验必须 offload（与登录同源，否则改密也能冻结全站）
+    ok, _ = await _offload(auth.verify_password, old_pw, user.get("password_hash"))
     if not ok:
         auth.audit("user.password_change", actor_id=user["user_id"],
                    ip=client_ip(request), result="denied",
@@ -331,8 +388,8 @@ async def auth_change_password(request: Request):
     perr = auth.validate_new_password(new_pw)
     if perr:
         return _err(perr)
-    auth.set_password(user["user_id"], new_pw, actor_id=user["user_id"],
-                      ip=client_ip(request))
+    await _offload(auth.set_password, user["user_id"], new_pw,
+                   actor_id=user["user_id"], ip=client_ip(request))
     resp = JSONResponse({"ok": True, "relogin_required": True})
     _clear_session_cookie(resp)
     return resp
@@ -375,7 +432,8 @@ async def auth_bootstrap(request: Request):
         return _err("没有待初始化的管理员账号（可能已完成引导）", code=409)
 
     uid = int(row["user_id"])
-    pw_hash = auth.hash_password(password)
+    # P1-1：引导建号同样要算 scrypt，offload 出事件循环
+    pw_hash = await _offload(auth.hash_password, password)
     now = time.time()
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -449,10 +507,11 @@ async def admin_create_user(request: Request):
     if not password:
         return _err("必须为新用户设置口令")
     try:
-        u = auth.create_user(username, password, role=role,
-                             display_name=display_name,
-                             actor_id=sess["user"]["user_id"],
-                             ip=client_ip(request))
+        # P1-1：create_user 内部跑 scrypt，必须 offload
+        u = await _offload(auth.create_user, username, password, role=role,
+                           display_name=display_name,
+                           actor_id=sess["user"]["user_id"],
+                           ip=client_ip(request))
     except ValueError as e:
         return _err(str(e))
     except Exception as e:  # noqa: BLE001
@@ -507,6 +566,21 @@ async def admin_patch_user(user_id: int, request: Request):
         conn.execute("UPDATE users SET role=?, updated_at=? WHERE user_id=?",
                      (new_role, time.time(), int(user_id)))
         conn.commit()
+        # P1-3（V36，2026-10-24 审计）：**降权必须撤销该用户的全部会话**。
+        #
+        # 为什么必须：`auth.require_csrf`／`/api/auth/me`／`_require_admin` 读的是
+        # **缓存里的会话快照**（`sess["user"]["role"]`），缓存 TTL 30s。不撤销的话，
+        # 一个被从 admin 降成 user 的人在被降级后的 ≤30s 内，其旧会话里仍写着
+        # `role=admin`，任何依赖该快照的角色判断都会放过他。
+        # 主闸门（中间件）每请求重读 DB，所以真实危害被压在 30s ——
+        # 但"防御纵深里有一层持续 30s 失效"本身就是缺陷，且改密/停用都撤销了会话，
+        # 唯独降权没撤销，属口径不一致。
+        #
+        # 与 set_status 保持同一套动作（revoke_user_sessions + invalidate_session_cache），
+        # 避免出现第二套语义。
+        if str(target.get("role")) != new_role:
+            auth.revoke_user_sessions(int(user_id), reason=f"role_{new_role}")
+            auth.invalidate_session_cache()
         auth.audit("user.role_change", actor_id=actor["user_id"],
                    target_id=int(user_id), ip=client_ip(request),
                    detail={"from": target.get("role"), "to": new_role})
@@ -538,10 +612,10 @@ async def admin_reset_password(user_id: int, request: Request):
     if target is None or target.get("deleted_at"):
         return _err("用户不存在", code=404)
     try:
-        auth.set_password(int(user_id), new_pw,
-                          actor_id=sess["user"]["user_id"],
-                          action="user.password_reset",
-                          ip=client_ip(request))
+        await _offload(auth.set_password, int(user_id), new_pw,
+                       actor_id=sess["user"]["user_id"],
+                       action="user.password_reset",
+                       ip=client_ip(request))
     except ValueError as e:
         return _err(str(e))
     return {"ok": True, "note": "口令已重置，该用户所有会话已失效"}

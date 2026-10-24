@@ -303,7 +303,11 @@ def test_api_key_never_appears_in_any_response(client, users):
 def test_masked_key_format(client, users):
     admin_h, _ = users
     client.post("/api/user/llm/config", headers=admin_h, json={
-        "api_key": 'sk' + '-abcdefghijkl', "model": "m", "base_url": "u", "samples": 1})
+        # V37：base_url 现在必须可安全外连（P1-2 SSRF 防护），
+        # 原来写的占位 "u" 会被保存侧 400 拒绝。本用例验证的是**密钥脱敏**，
+        # 与地址无关，故换成合法公网地址（不会真的发请求）。
+        "api_key": 'sk' + '-abcdefghijkl', "model": "m",
+        "base_url": "https://api.example.com/v1", "samples": 1})
     j = client.get("/api/user/llm/config", headers=admin_h).json()
     assert j["api_key_masked"] == ('sk' + '-****ijkl')
 

@@ -145,6 +145,54 @@ def _load_active_user_for_middleware(user_id: int):
 
 
 @app.middleware("http")
+async def concurrency_middleware(request: Request, call_next):
+    """重计算端点的并发闸门（V36，2026-10-24 审计 P1-13）。
+
+    ## 为什么要单独一个中间件
+
+    鉴权中间件管"能不能进"，这里管"同时能有多少个在里面算"。两者语义不同，
+    混在一起会让 catch-all 的鉴权逻辑变复杂，也不好单独关闭/调参。
+
+    ## 为什么不排队
+
+    拿不到并发位**立即** 503 并给可执行指引。排队的后果是请求越堆越多、
+    全部在超时线附近返回，用户看到的是"转很久然后失败"，比立刻告知更糟。
+    前端拿到 503 + `retry_after_seconds` 后自己退避重试。
+
+    ## 为什么只保护名单内的路径
+
+    纯读端点与探活不在名单内 —— healthcheck 必须永远可达（容器编排依赖它），
+    把它也限流会让容器被判 unhealthy 而重启，属于自伤。
+
+    必须写在鉴权中间件**之前**（FastAPI 按注册逆序执行，后注册的先跑）：
+    这样连匿名洪泛也会被闸门挡住，不必先花代价解析会话。
+    """
+    from . import concurrency as _cc
+    bucket = _cc.bucket_for(request.url.path)
+    if bucket is None:
+        return await call_next(request)
+    try:
+        ctx = _cc.acquire(bucket)
+        ctx.__enter__()          # 同步、非阻塞：失败立刻抛 Busy
+    except _cc.Busy:
+        return JSONResponse(
+            {"ok": False,
+             "error": (f"服务器正在计算其他任务（{bucket} 通道已满）。"
+                       "这不会损坏任何数据。请等待几秒后重试；"
+                       "若长期如此，说明该通道确实繁忙，可稍后再来。"),
+             "busy": True, "bucket": bucket,
+             "retry_after_seconds": 5},
+            status_code=503, headers={"Retry-After": "5"})
+    try:
+        return await call_next(request)
+    finally:
+        try:
+            ctx.__exit__(None, None, None)
+        except Exception:        # noqa: BLE001 —— 释放失败不得影响响应
+            pass
+
+
+@app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     """多用户鉴权（deny-by-default）+ 旧 LOTT_TOKEN 兼容。
 

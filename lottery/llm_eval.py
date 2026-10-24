@@ -105,6 +105,13 @@ def run_llm_eval(draws: List[Dict], issues: Optional[int] = None,
     usage: Dict[str, Dict] = {ch: {"tokens": 0, "cost_usd": 0.0,
                                    "duration_ms": 0, "calls": 0} for ch in CHANNELS}
     llm_empty_issues = 0   # LLM 通道失败（无候选）的期数，如实计入口径
+    # P1-14（V36，2026-10-24 审计）：记录**哪几期**失败。
+    # 这些期的 `stat_llm` 是用 `stat` 输出顶替的 —— 若照旧计入配对样本，
+    # `stat_llm vs stat` 的差值在这些期恒为 0，会把配对均值往 0 拉、
+    # p 值往「无差异」推，等于**系统性掩盖 LLM 的劣绩**。
+    # 配对检验的前提是"同一对象在两种处理下的配对观测"，顶替样本不满足，
+    # 必须整对剔除（剔除是对称的：两边同时去掉那一期）。
+    llm_failed_idx: list = []
     per_metric: Dict[str, Dict[str, List[float]]] = {
         ch: {k: [] for k in ("red_hits_mean", "blue_hit_rate", "prize_rate_ge5", "roi")}
         for ch in CHANNELS}
@@ -161,6 +168,7 @@ def run_llm_eval(draws: List[Dict], issues: Optional[int] = None,
         if not llm_cands:
             # LLM 通道失败（上游超时/连接挂起/无候选）→ 生产口径为回退纯统计输出，如实记录
             llm_empty_issues += 1
+            llm_failed_idx.append(len(runs["stat_llm"]))
             llm_cands = res_stat["tickets"]
         runs["stat_llm"].append(EV.tickets_result(_safe(llm_cands), target))
         usage["stat_llm"]["tokens"] += tokens
@@ -214,7 +222,11 @@ def run_llm_eval(draws: List[Dict], issues: Optional[int] = None,
     for a, b in pair_order:
         pvals = []
         for k in metric_keys:
-            delta = [x - y for x, y in zip(per_metric[a][k], per_metric[b][k])]
+            # P1-14：凡涉及 stat_llm 的配对，剔除 LLM 失败期（顶替样本不是有效配对）
+            skip = set(llm_failed_idx) if "stat_llm" in (a, b) else set()
+            delta = [x - y for idx, (x, y)
+                     in enumerate(zip(per_metric[a][k], per_metric[b][k]))
+                     if idx not in skip]
             res = _pair_p(delta)
             pvals.append(res["p"])
             comparisons.append({"pair": f"{a}_vs_{b}", "metric": k,
@@ -272,6 +284,9 @@ def run_llm_eval(draws: List[Dict], issues: Optional[int] = None,
         "seed": seed,
         "llm_samples": 1,
         "llm_empty_issues": llm_empty_issues,
+        # P1-14：把「剔除了几期」明写出来，让口径可核对（而不是让人以为
+        # 配对用的是全部期数）。
+        "paired_issues_excluding_llm_failures": issues_actual - len(llm_failed_idx),
         "elapsed_seconds": elapsed,
         "channels": summary_meta,
         "per_issue": per_issue,
@@ -284,6 +299,9 @@ def run_llm_eval(draws: List[Dict], issues: Optional[int] = None,
             "评估口径：stat_llm = 观察 + 选号两轮（llm_samples=1），第三轮校验（M3.2）仅生产启用，"
             "其边际成本/收益待后续增量评估。若上游 LLM 中途失败，该期 stat_llm 如实回退为 stat 输出，"
             "并在指标旁标注 llm_empty_issues（LLM 失败期数）。"
+            "**配对检验口径（V36 修正）**：涉及 stat_llm 的配对比较会**整对剔除**这些失败期"
+            "（顶替样本不构成有效配对，混入会把差值往 0 拉、系统性掩盖 LLM 劣绩）；"
+            "实际参与配对的期数见 paired_issues_excluding_llm_failures。"
         ),
     }
     print(f"[llm_eval] 完成 run_id={run_id} 期数={issues_actual} 耗时={elapsed}s，"

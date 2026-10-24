@@ -844,7 +844,14 @@ function renderPredictions(res) {
       evd += '<div class="reasoning">⚠️ 反证：' + escHtml(t.counter_evidence.join("；")) + '</div>';
     }
     if (t.structure_scores && typeof t.structure_scores === "object" && Object.keys(t.structure_scores).length) {
-      const sc = Object.entries(t.structure_scores).map(([k,v]) => escHtml(k) + "=" + v).join(" · ");
+      // V37（2026-10-24 审计 P2-1）：**v 也必须转义**。
+      // `structure_scores` 来自 LLM 输出（engine 只校验它是不是 dict，
+      // 键与值都原样透传），而这里直接拼进 innerHTML。
+      // 一个被提示注入或本身畸形的模型只要返回
+      //   {"x": "<img src=x onerror=alert(1)>"}
+      // 就能在页面里执行脚本。键之前已转义、值漏了 —— 这类"只转义了一半"
+      // 是最常见的 XSS 形态，因为它们看起来"已经处理过了"。
+      const sc = Object.entries(t.structure_scores).map(([k,v]) => escHtml(k) + "=" + escHtml(v)).join(" · ");
       // 原标签「📐 结构分」会被读成"分数越高越该买"。它的真实语义是
       // ensemble_mass ——「混合分布上的概率质量」，即**系统内部排序权重**，
       // 既不是中奖概率，也不能跨期比较（分母随当期混合分布变化）。
@@ -4630,7 +4637,7 @@ async function loadAll() {
       if (health.version) {
         const ver = "v" + health.version;
         const vb = $("#verBadge"), vt = $("#verText");
-        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + " · v4.16.0 V36"; }
+        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + " · v4.17.0 V37"; }
         if (vt) vt.textContent = ver;
       }
     }

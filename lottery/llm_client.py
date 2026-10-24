@@ -15,6 +15,7 @@ _usage = {"calls": 0, "prompt_chars": 0, "completion_chars": 0}
 _usage_lock = threading.Lock()
 
 from . import config
+from . import url_guard as _url_guard
 
 
 # ==========================================================================
@@ -515,6 +516,22 @@ def chat(system: str, user: str, max_tokens: int = 2000,
         model = config.LLM_MODEL_LIST[0]
     else:
         base_url = str(model_cfg["base_url"]).rstrip("/")
+        # P1-2（V36，2026-10-24 审计）：**发请求前的最后一道闸**。
+        # 只在校验保存侧不够 —— 历史已存配置、管理员全局通道、将来任何
+        # 绕过 save 的写入路径都直接到这里。用户自填 base_url 让服务器去
+        # POST，构成认证后 SSRF，且错误路径会把响应前 200 字符回传。
+        _ok, _why = _url_guard.check_llm_base_url(
+            base_url, allow_private=_url_guard.allow_private_from_env())
+        if not _ok:
+            msg = ("LLM 服务地址不可用：" + _why +
+                   " 如这是自建内网服务，请让管理员设置 "
+                   "LOTT_LLM_ALLOW_PRIVATE_URL=1 后再试。")
+            bill = _bill_new(str(model_cfg.get("model") or ""), _purpose)
+            _bill_finish(bill, ok=False, error="unsafe_base_url")
+            if strict:
+                raise LLMChannelError(msg)
+            print("[llm] " + msg + "，降级为纯统计模型")
+            return None
         url = base_url + "/chat/completions"
         api_key = str(model_cfg["api_key"])
         model = str(model_cfg["model"])
@@ -580,7 +597,9 @@ def chat(system: str, user: str, max_tokens: int = 2000,
             bill["attempts"] = int(bill.get("attempts") or 0) + 1
             r = requests.post(url, json=payload, headers=headers, timeout=eff_timeout)
             if r.status_code != 200:
-                last_err = f"HTTP {r.status_code}: {r.text[:200]}"
+                # P1-2：回显要脱敏 —— 上游可能是任意用户指定地址，
+                # 原样回吐响应体等于把内网探测变成「可读响应」。
+                last_err = f"HTTP {r.status_code}: {_redact_echo(r.text)}"
                 # 429 限流 / 5xx 网关错误属瞬态：短退避后重试（不消耗 attempt，限 3 次）
                 if (r.status_code == 429 or r.status_code >= 500) and rate_retries < 3:
                     rate_retries += 1
@@ -834,3 +853,40 @@ def usage_snapshot() -> Dict:
     """返回调用计量快照：{calls, prompt_chars, completion_chars}。"""
     with _usage_lock:
         return dict(_usage)
+
+def _redact_echo(text: str, limit: int = 200) -> str:
+    """把上游响应体压成**不含内网信息**的短摘要（P1-2，V36，2026-10-24 审计）。
+
+    为什么不能原样回吐：``base_url`` 由用户填写，服务器会替他去 POST。
+    若把响应体前 200 字符原样带回给用户，这个 SSRF 就从「盲打」升级成
+    「可读响应」—— 能读云元数据、内网服务 banner、甚至内网 API 数据。
+
+    做法：
+      * 只保留**结构化错误信息**（JSON 里的 message/error 字段），那是用户
+        排查自己模型配置真正需要的东西；
+      * 非 JSON / HTML / 二进制一律折叠成「响应体已省略」；
+      * 纯文本（如 Redis banner、nginx 错误页）同样省略 —— 它们的价值对
+        "排查 LLM 配置" 几乎为零，而泄漏面很大。
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return "(空响应)"
+    head = raw[:800]
+    if head.startswith("<"):
+        return "(响应体已省略：非 JSON 结构)"
+    try:
+        data = json.loads(head if len(raw) <= 800 else raw)
+    except Exception:                            # noqa: BLE001
+        return "(响应体已省略：非 JSON)"
+    msg = ""
+    if isinstance(data, dict):
+        err = data.get("error")
+        if isinstance(err, dict):
+            msg = str(err.get("message") or err.get("type") or "")
+        elif err:
+            msg = str(err)
+        if not msg:
+            msg = str(data.get("message") or data.get("msg") or "")
+    if not msg:
+        return "(响应体已省略)"
+    return msg[:limit]

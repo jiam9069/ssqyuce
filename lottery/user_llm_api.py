@@ -207,6 +207,22 @@ async def save_user_llm_config(request: Request):
             detail={"path": "/api/user/llm/config", "reason": "user_id_mismatch"})
         return _err("不能修改其他用户的配置", code=403)
 
+    # P1-2（V36，2026-10-24 审计）：保存时先校验 base_url 可安全外连。
+    # 这是**即时反馈**用的第一道闸；真正的安全边界在 llm_client.chat()
+    # （历史配置/全局通道/其他写入路径都从那里过）。
+    if payload.get("base_url"):
+        from . import url_guard
+        _ok, _why = url_guard.check_llm_base_url(
+            str(payload["base_url"]),
+            allow_private=url_guard.allow_private_from_env())
+        if not _ok:
+            from . import auth_api
+            auth_api.auth.audit(
+                "llm_config.unsafe_url", actor_id=uid,
+                ip=auth_api.client_ip(request), result="denied",
+                detail={"reason": "unsafe_base_url"})
+            return _err(_why, code=400)
+
     from . import user_llm_store
     try:
         user_llm_store.save(uid, payload)

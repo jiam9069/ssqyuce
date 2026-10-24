@@ -221,3 +221,143 @@ def test_api_app_keeps_only_assembly_responsibilities():
     assert n <= 71, (
         f"api_app.py 里仍有 {n} 个端点（阈值 71）。P2 的目标是把它们下沉到 "
         f"routes_*.py；新增端点请放进对应域模块。")
+
+
+# ---------------------------------------------------------------------------
+# P1-11（V36，2026-10-24 审计）：守卫只守了一条，补上通用分层
+# ---------------------------------------------------------------------------
+#
+# 审计原文：「`test_p2_dependency_direction.py` 只禁『底层 import api_app』，
+# 没有守住跨层的其他方向 —— 例如 `evaluate.py → engine`，会让『依赖方向已被
+# 守住』变成错觉。」
+#
+# 这个判断成立：上面唯一的核心用例确实是"单点禁令"。下面按**层号**给出通用规则，
+# 让"某个模块 import 了它不该 import 的东西"变成一条可枚举的失败，
+# 而不是靠人看见才想起。
+
+#: 分层编号（数字越小越底层，只能被上层依赖，不能反向依赖上层）。
+#: 分组依据是**职责**而不是文件名字母序：
+LAYERS = {
+    # L0 纯状态 / 纯常量 / 纯数据结构（不依赖任何其它 lottery 模块）
+    0: {"request_context", "jsonutil", "engine_base"},
+    # L1 基础设施：配置、DB、加密、统计原语、**外部 I/O 客户端**。
+    #
+    # `llm_client` / `methods` 放在 L1 而不是"服务层"，理由是实测出来的：
+    # 它们被 engine/engine_* / hypothesis / decision_skill / ai_audit / llm_lab /
+    # data_audit / replay 等**十余个领域模块**引用。
+    # 把它们标成上层会让分层检查对着十几个"违规"报警 —— 那些报警描述的不是
+    # 设计问题，而是我的分组没反映真实依赖结构。分层的价值在于指出**倒置**，
+    # 不在于裁决"HTTP 客户端算不算基础设施"。它们是叶子（只依赖 config），
+    # 所以归 L1 既准确又让检查聚焦在真正的环上。
+    #
+    # `methods` 同理：它是**通道开关的纯函数表**（resolve_channels 等），
+    # 不发起 I/O、不碰 DB，属于"配置的延伸"。
+    1: {"config", "db", "secretbox", "migrations", "parser",
+        "stats", "url_guard", "concurrency", "llm_client", "methods",
+        "llm_config_store",
+        # features 只依赖 config 的窗口常量，是"配置的派生"，不是领域结论。
+        # models 也依赖它 → 二者与 config 同层最诚实。
+        "features", "models"},
+    # L2 领域算法：特征、规律、引擎、回测、评估
+    2: {"features", "patterns", "regime", "mining", "engine", "engine_prize",
+        "engine_distribution", "engine_blue", "engine_blend", "engine_rules",
+        "engine_solver", "engine_constraints", "engine_orchestrate",
+        "evaluate", "backtest", "battle", "hypothesis", "evolution",
+        "ml_model", "multiscale", "popularity", "blue_coverage",
+        "candidate_space", "variance_picker", "discovery", "rule_lifecycle",
+        "shape_rules", "decision_skill", "selfcheck", "walk_forward_gate",
+        "spec_replay", "replay", "ai_audit", "ai_hypothesis", "llm_lab",
+        "llm_eval", "data_audit", "data_check", "data_fetcher",
+        "patterns_runtime", "prereg_scheduler", "eprocess", "diagnose",
+        "rigor", "rule_protocol"},
+    # L3 服务层：任务调度、通知、租户存储（**会发起 I/O 或持有线程**的才在这层）
+    3: {"user_llm_store", "bg_tasks", "notify", "idle_mining",
+        "evolution_service", "l2_service"},
+    # L4 Web 装配：路由与 app（它们可以依赖下面所有层）
+    4: {"api_app", "auth", "auth_api", "routes_audit", "routes_capabilities",
+        "routes_data", "routes_diagnosis", "routes_eval", "routes_llm",
+        "routes_llm_eval", "routes_llm_ops", "routes_methods", "routes_ml",
+        "routes_patterns", "routes_portfolio", "routes_predict", "routes_rigor",
+        "routes_rules", "routes_tasks", "cli", "user_llm_api"},
+}
+
+#: 已知且**有明确理由**的上行依赖（白名单）。
+#: 加条目必须写明理由 —— 否则它就变成"永久豁免"的垃圾抽屉。
+KNOWN_UPWARD = {
+    # evaluate 调 engine.predict_next 做 walk-forward 评估。这是**循环**：
+    # engine 也需要 evaluate 的 prize_level 结算。历史上已存在，
+    # 拆分重构（V14 engine_split）没有解决它。
+    # 记为已知债务：改动时至少要意识到"评估与引擎互相依赖"。
+    ("evaluate", "engine"),
+    # battle 建立在 evaluate 之上（回放判据）同时又要驱动 engine
+    ("battle", "engine"),
+    # db → evaluate：`save_eval_details` 需要按奖级结算票（`evaluate.prize_level`
+    # 与 PRIZE_CASH）。严格说这是倒置：持久化层不该懂"怎么算奖"。
+    # 正确修法是把 prize_level 下沉到 L0/L1（它是纯组合数学），但那会牵动
+    # evaluate / battle / engine 三处导入，属独立重构，不在本次"修安全 P1"范围。
+    # 登记为债务：新增 db 功能时不要再往 evaluate 里加东西。
+    ("db", "evaluate"),
+    # llm_client → user_llm_store：记录用量（quota 记账）需要知道"当前用户"。
+    # 同样是倒置（客户端不该认识租户存储），修法是把记账下沉/回调注入。
+    # 登记为债务：这是"记账必须发生在调用点"造成的，改动需同时动配额语义。
+    ("llm_client", "user_llm_store"),
+}
+
+
+def _layer_of(mod: str):
+    for lv, members in LAYERS.items():
+        if mod in members:
+            return lv
+    return None
+
+
+def test_no_unknown_upward_dependencies():
+    """逐模块检查：不得依赖**更高层**的模块（白名单除外）。
+
+    这条替代了原来"只禁 api_app"的单点禁令，能抓出任何新增的跨层倒置。
+    副作用（有意为之）：往 L0/L1 里加 import 会立刻变红，逼人想清楚
+    "这个依赖该不该存在"，而不是顺手 import。
+    """
+    offenders = []
+    for p in sorted(LOTTERY.glob("*.py")):
+        mod = p.stem
+        if mod == "__init__":
+            continue
+        my = _layer_of(mod)
+        if my is None:
+            continue
+        for dep in _imports_of(p):
+            if dep == mod:
+                continue
+            dl = _layer_of(dep)
+            if dl is None or dl <= my:
+                continue
+            if (mod, dep) in KNOWN_UPWARD:
+                continue
+            offenders.append(f"{mod}(L{my}) → {dep}(L{dl})")
+    assert not offenders, (
+        "发现未登记的上行依赖（低层 import 了更高层）：\n  "
+        + "\n  ".join(offenders)
+        + "\n\n两条路：① 改成本层内可解决的问题；② 若确实必须，"
+          "加入 KNOWN_UPWARD 并写明理由（那是债务登记，不是豁免）。")
+
+
+def test_layers_table_covers_all_modules():
+    """分层表必须覆盖所有模块 —— 否则新模块会静默逃过上面的检查。"""
+    actual = {p.stem for p in LOTTERY.glob("*.py")} - {"__init__"}
+    known = {m for members in LAYERS.values() for m in members}
+    missing = sorted(actual - known)
+    assert not missing, (
+        f"这些模块没有归层，因此逃过了依赖方向检查：{missing}\n"
+        "请把它们放进 LAYERS 的合适层级。")
+
+
+def test_known_upward_entries_are_real():
+    """白名单里不许留"已经不存在"的条目 —— 过期豁免会让检查形同虚设。"""
+    stale = []
+    for (a, b) in KNOWN_UPWARD:
+        pa = LOTTERY / f"{a}.py"
+        if not pa.exists() or b not in _imports_of(pa):
+            stale.append(f"{a} → {b}")
+    assert not stale, (
+        f"KNOWN_UPWARD 里这些条目已经不再成立，请删掉：{stale}")

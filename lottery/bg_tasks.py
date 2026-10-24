@@ -60,7 +60,25 @@ def _bg_run(kind: str, fn, on_done=None) -> str:
                 except Exception:  # noqa: BLE001
                     pass
         except Exception as e:  # noqa: BLE001
-            db.update_task(tid, "failed", 0.0, f"{type(e).__name__}: {e}")
+            try:
+                db.update_task(tid, "failed", 0.0, f"{type(e).__name__}: {e}")
+            except Exception:  # noqa: BLE001 —— 连失败标记都写不进时也别炸线程
+                pass
+        finally:
+            # P1-10（V36，2026-10-24 审计）：**必须关掉本线程的连接**。
+            #
+            # `db.get_conn()` 是 thread-local：每个线程第一次用时建立一个连接、
+            # 之后一直复用、且**从不主动关闭**（对长期存活的请求线程是正确的）。
+            # 但本处的线程是**一次性**的（每个后台任务起一个），线程结束后连接
+            # 对象随 thread-local 一起被回收 —— 具体何时关闭取决于 GC，
+            # 期间占用一个 fd 与 SQLite 的 WAL 读快照，会拖慢 checkpoint。
+            #
+            # `db.close()` 的语义正是"关当前线程的连接"，在这里调用完全安全：
+            # 它只影响本线程，不会动请求线程或调度器线程的连接。
+            try:
+                db.close()
+            except Exception:  # noqa: BLE001
+                pass
 
     # MU-2：同 llm_eval，后台任务里的 LLM 消耗必须记到发起人头上
     threading.Thread(target=contextvars.copy_context().run, args=(_run,),
