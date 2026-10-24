@@ -73,12 +73,76 @@ def _cpu_count() -> int:
         return max(1, os.cpu_count() or 1)
 
 
-def _system_cpu_pct() -> Optional[float]:
-    """整机当前 CPU 使用率（%）。
+def _read_cgroup_cpu_usage() -> Optional[int]:
+    """读**本容器**的 CPU 使用（微秒）。读不到返回 None。
 
-    `os.getloadavg()` 给的是 1 分钟平均负载，对「实时限流」太迟钝；
-    这里读 `/proc/stat` 的前后差值算瞬时值。读不到就返回 None（调用方跳过控制）。
+    ## 为什么必须优先用 cgroup（V39，2026-10-24 审计 P2）
+
+    在容器里 `/proc/stat` 显示的是**宿主整机**的 CPU（实测 docker exec 看到
+    的 `cpu 43429336...` 是整机累计，不是本容器的）。于是 `_system_cpu_pct`
+    在共享宿主上会**把其它容器的占用当成自己的** —— 别的容器跑满时，
+    本容器会误以为"整机已满"而过度限流；反过来本容器吃满但宿主空闲时，
+    又会不限流。读宿主而不是读自己，是这套限流的真实偏差。
+
+    cgroup v2 的 `/sys/fs/cgroup/cpu.stat` 里 `usage_usec` 是**本容器**的
+    CPU 时间，配合 `cpu.max` 的配额/周期能算出本容器的占用率。这才能回答
+    "我的容器现在用了多少"，而不是"宿主整机用了多少"。
     """
+    try:
+        with open("/sys/fs/cgroup/cpu.stat", "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("usage_usec"):
+                    return int(line.split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def _read_cgroup_cpu_quota() -> Optional[float]:
+    """读本容器的 CPU 配额（核心数）。读不到返回 None。
+
+    `cpu.max` 形如 `240000 100000`（配额微秒 / 周期微秒）= 2.4 核。
+    """
+    try:
+        with open("/sys/fs/cgroup/cpu.max", "r", encoding="utf-8") as f:
+            parts = f.read().split()
+        if len(parts) == 2:
+            quota, period = int(parts[0]), int(parts[1])
+            if quota > 0 and period > 0:
+                return quota / period
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def _system_cpu_pct() -> Optional[float]:
+    """整机（或本容器）当前 CPU 使用率（%）。
+
+    `os.getloadavg()` 给的是 1 分钟平均负载，对「实时限流」太迟钝。
+
+    **V39 口径修正**：优先读**本容器**的 cgroup `usage_usec` 差分 —— 这才是
+    "我用了多少"，而不是"宿主整机用了多少"。容器里 `/proc/stat` 是宿主视图，
+    在共享宿主上会把别人的占用算成自己的。
+
+    算容器占用率：`usage 增量 / (配额核数 × 周期 × 采样窗口)`，钳到 0..100。
+    若 cgroup 读不到（非容器环境），回退到宿主 `/proc/stat`（保留原行为）。
+    读不到返回 None（调用方跳过控制）。
+    """
+    # --- 优先：容器 cgroup ---
+    quota = _read_cgroup_cpu_quota()          # 2.4 等；None = 读不到
+    # **只有配额与 usage 都能读到时才用容器口径**。非容器环境里
+    # `/sys/fs/cgroup/cpu.stat` 可能读到宿主的累计值、而 cpu.max 不存在 ——
+    # 那会把宿主占用当成容器的，与原 `/proc/stat` 语义混淆。宁可回退。
+    if quota:
+        u0 = _read_cgroup_cpu_usage()
+        if u0 is not None:
+            time.sleep(0.05)
+            u1 = _read_cgroup_cpu_usage()
+            if u1 is not None and u1 > u0:
+                cores_used = (u1 - u0) / 1e6 / 0.05   # 采样窗内的平均核心数
+                return min(100.0, 100.0 * cores_used / quota)
+
+    # --- 回退：宿主 /proc/stat（非容器环境）---
     try:
         with open("/proc/stat", "r", encoding="utf-8") as f:
             parts = f.readline().split()

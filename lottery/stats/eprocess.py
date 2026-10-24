@@ -257,7 +257,24 @@ def sigma_hypergeom(k: float, target: str = "red") -> float:
     """
     if k is None or (isinstance(k, float) and k != k):     # NaN
         k = float(R_PICK)
-    k = float(max(0.0, k))
+    # V39（2026-10-24 审计 P2）：**边界输入必须显式报错，不能静默钳回 0**。
+    #
+    # 旧实现把负值钳成 0、把 >R_MAX 的 k 用 `max(fpc,0)` 变成 0 —— 于是
+    # k=-5 和 k=50 都"安全地"返回 0，看起来没问题，实际是**调用方传错参数
+    # 被悄悄吞掉**。特别危险的是 k>R_MAX：k 一旦超过全集大小，"命中数方差为 0"
+    # 在数学上是对的（全选必全中），但那不是调用方想要的"这个筛选集的标准差"，
+    # 而是说明筛选集构造出了问题。宁可用 ValueError 让错误可见。
+    kf = float(k)
+    if target == "blue":
+        hi = float(B_MAX)
+    else:
+        hi = float(R_MAX)
+    if not (0.0 <= kf <= hi):
+        raise ValueError(
+            f"筛选集大小 k={kf!r} 越界：必须在 0..{int(hi)} 之间"
+            f"（target={target}）。请检查筛选集的构造 —— "
+            "k 超过号码总数通常说明候选生成逻辑有 bug，不是正常边界。")
+    k = kf
     if target == "blue":
         p = 1.0 / B_MAX
         var = k * p * (1.0 - p)

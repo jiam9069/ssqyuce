@@ -330,13 +330,17 @@ def p_at_least_r_mc(tickets: List[Dict], r: int = 4, n_draws: int = 200_000,
             "stderr": float((p * (1.0 - p) / n_draws) ** 0.5)}
 
 
-def _single_ticket_ev(jackpot: Optional[Dict] = None, *, sixth: str = "published") -> Dict:
+def _single_ticket_ev(jackpot: Optional[Dict] = None, *, sixth: str = "strict") -> Dict:
     """单注期望奖金（元）与各奖级贡献。
 
     ``sixth="published"``：V4 文档口径 —— 六等奖按「蓝球命中」的**边际**概率 ×¥5
     计（0.0625×5 = ¥0.3125），与高奖级存在重复计数；这是项目自 V4 起对外发表、
     docs/V10 §3.4.5 冻结的 `ev_ratio_full ≈ 0.45675` 的来源（一等 ¥5,000,000 /
     二等 ¥150,000 时单注 ¥0.9135）。
+    ⚠ V39 起**默认已改为 ``strict``**：此前默认 published 会让任何"忘记显式传
+    sixth 的调用方"拿到一个数学上不成立的重复计数口径（概率合计 0.0707 > 官方
+    0.0671，EV 高估 2.01%）。现所有生产路由都已显式传 strict，默认值同步收紧；
+    published 保留仅供 `ev_ratio_full` 与 `ev_ratio_full_strict` 并排展示用。
     ``sixth="strict"``：按 ``evaluate.prize_level`` 的**互斥**奖级严格计算
     （六等奖只含「蓝球命中且红球 ≤2」）；同一假设下为 ¥0.8954（0.4477），
     与上面差 ~2% —— 两者都给出，让口径可核对而不是二选一。
