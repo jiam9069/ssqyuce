@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>双色球号码组合分析系统</title>
-<link rel="stylesheet" href="/static/style.css?v=20261023.11">
+<link rel="stylesheet" href="/static/style.css?v=20261024.1">
 <!-- ECharts CDN + 本地 fallback -->
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
-  onerror="this.src='/static/vendor/echarts.min.js?v=20261023.11'"></script>
+  onerror="this.src='/static/vendor/echarts.min.js?v=20261024.1'"></script>
 </head>
 <body>
 <div class="app">
@@ -143,157 +143,6 @@
       </section>
 
       <!-- 数据分析 -->
-      <section id="tab-analysis" class="tab-panel">
-        <div class="card">
-          <h2>📈 多尺度统计 <span class="tag" id="anaWinTag"></span></h2>
-          <div class="tabs">
-            <div class="tab on" data-w="long" onclick="setWin('long')">长期 · 全量</div>
-            <div class="tab" data-w="mid" onclick="setWin('mid')">中期 · 近150期</div>
-            <div class="tab" data-w="short" onclick="setWin('short')">短期 · 近30期</div>
-          </div>
-          <div class="metrics" id="anaOverview"></div>
-          <div class="grid2">
-            <div class="ana-block">
-              <div class="ana-head">
-                <b>🔴 红球热力</b>
-                <div class="mini-tabs" id="heatModeTabs">
-                  <div class="mini-tab on" data-m="freq" onclick="setHeatMode('freq')">频率</div>
-                  <div class="mini-tab" data-m="omit" onclick="setHeatMode('omit')">当前遗漏</div>
-                  <div class="mini-tab" data-m="ratio" onclick="setHeatMode('ratio')">遗漏比</div>
-                </div>
-              </div>
-              <div class="heat" id="heatFreq"></div>
-              <div class="legend" id="heatLegend"></div>
-              <div class="note">点击任意号码查看该号统计与近 100 期走势 · 虚线框 = 上期开出</div>
-            </div>
-            <div class="ana-block">
-              <div class="ana-head">
-                <b>🔵 蓝球面板</b>
-                <div class="mini-tabs" id="bHeatModeTabs">
-                  <div class="mini-tab on" data-m="freq" onclick="setBHeatMode('freq')">频率</div>
-                  <div class="mini-tab" data-m="omit" onclick="setBHeatMode('omit')">遗漏</div>
-                </div>
-              </div>
-              <div class="heat heat-blue" id="heatBlue"></div>
-              <div class="legend" id="bHeatLegend"></div>
-              <div class="note" style="margin-top:6px">近 30 期蓝球轨迹</div>
-              <div class="chart" id="chBlueTrend" style="height:150px"></div>
-            </div>
-          </div>
-          <div class="note" id="winStats"></div>
-        </div>
-
-        <div class="card">
-          <h2>📉 走势分析
-            <select id="trendRange" class="range-sel" onchange="onTrendRangeChange()">
-              <option value="100">近 100 期</option>
-              <option value="300" selected>近 300 期</option>
-              <option value="500">近 500 期</option>
-            </select>
-          </h2>
-          <div class="grid2">
-            <div><div class="note">和值走势（金虚线=均值 · 灰点线=±1σ · 红点线=90% 分位）</div><div class="chart" id="chSum" style="height:210px"></div></div>
-            <div><div class="note">三区比堆积（一区1-11 / 二区12-22 / 三区23-33）</div><div class="chart" id="chZone" style="height:210px"></div></div>
-            <div><div class="note">红球跨度走势（max−min）</div><div class="chart" id="chSpan" style="height:210px"></div></div>
-            <div><div class="note">奇数个数走势</div><div class="chart" id="chOdd" style="height:210px"></div></div>
-          </div>
-        </div>
-
-        <div class="card">
-          <h2>📊 分布统计 <span class="tag" id="distRangeTag"></span></h2>
-          <div class="grid2">
-            <div><div class="note">和值分布（金柱 = 均值所在区间）</div><div class="chart" id="chDistSum" style="height:185px"></div></div>
-            <div><div class="note">跨度分布</div><div class="chart" id="chDistSpan" style="height:185px"></div></div>
-            <div><div class="note">奇数个数分布（虚线 = 超几何理论值）</div><div class="chart" id="chDistOdd" style="height:185px"></div></div>
-            <div><div class="note">三区比 TOP8</div><div class="chart" id="chDistZone" style="height:185px"></div></div>
-            <div><div class="note">AC 值分布</div><div class="chart" id="chDistAC" style="height:185px"></div></div>
-            <div><div class="note">小号个数分布（1-16，虚线=理论）</div><div class="chart" id="chDistSize" style="height:185px"></div></div>
-            <div><div class="note">0路个数分布（被3整除，虚线=理论）</div><div class="chart" id="chDistRoute" style="height:185px"></div></div>
-            <div><div class="note">质数个数分布（虚线=理论）</div><div class="chart" id="chDistPrime" style="height:185px"></div></div>
-          </div>
-          <div class="note">「实际 vs 超几何理论」越接近，越说明号码结构服从均匀随机 —— 与系统诚实口径一致。</div>
-        </div>
-
-        <div class="card">
-          <h2>🕐 遗漏分析 <span class="tag">按当前窗口</span></h2>
-          <div class="grid2">
-            <div><div class="note">当前遗漏 vs 平均遗漏（点在金虚线上方=偏冷，下方=偏热）</div><div class="chart" id="chOmitScatter" style="height:250px"></div></div>
-            <div><div class="note">当前遗漏区间分组（各区间号码个数）</div><div class="chart" id="chOmitBins" style="height:250px"></div></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 规律研究 -->
-      <section id="tab-patterns" class="tab-panel">
-        <div class="card">
-          <h2>🔬 规律库 · 样本外回测结果
-            <span class="tag" id="patSummary"></span>
-            <button id="btnBacktest" style="margin-left:8px;font-size:11px;padding:3px 8px;" onclick="runBacktest()">🧪 重新回测</button>
-            <button id="btnMine" style="margin-left:4px;font-size:11px;padding:3px 8px;" onclick="runMining()">⛏️ 自动挖掘</button>
-            <button style="margin-left:4px;font-size:11px;padding:3px 8px;" onclick="comparePatterns()">⚖️ 多选对比</button>
-          </h2>
-          <div class="pat-filters">
-            <select id="patGradeFilter" onchange="filterPatterns()">
-              <option value="">全部等级</option>
-              <option value="A">A 显著</option>
-              <option value="B">B 弱信号</option>
-              <option value="C">C 不通过</option>
-            </select>
-            <select id="patKindFilter" onchange="filterPatterns()">
-              <option value="">全部尺度</option>
-              <option value="long">长期</option>
-              <option value="mid">中期</option>
-              <option value="short">短期</option>
-            </select>
-            <span id="patCount" style="color:var(--muted);font-size:12px;margin-left:8px;"></span>
-          </div>
-          <div class="scroll">
-            <table id="patTable">
-              <thead><tr>
-                <th>规律</th><th>尺度</th><th>说明</th><th>n</th><th>avg命中</th><th>期望</th>
-                <th>边际</th><th>p值</th><th>adj_p</th><th>等级</th><th>操作</th>
-              </tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <div id="miningRuns" class="note" style="margin-top:8px;font-size:12px"></div>
-          <div class="chart" id="chPattern" style="height:200px;"></div>
-          <div class="chart" id="chPatternCmp" style="height:220px;"></div>
-        </div>
-
-        <!-- 规律详情面板 -->
-        <div class="card hidden" id="patDetailCard">
-          <h2>📋 规律详情 <span id="patDetailName"></span></h2>
-          <div id="patDetailBody"></div>
-          <div class="chart" id="chPatSeries" style="height:220px;"></div>
-          <button onclick="closePatDetail()">关闭</button>
-        </div>
-      </section>
-
-      <!-- 历史回放 -->
-      <section id="tab-replay" class="tab-panel">
-        <div class="card">
-          <h2>🗓️ 历史开奖走势</h2>
-          <div class="scroll" id="histGrid"></div>
-        </div>
-        <div class="card">
-          <h2>📜 历史预测回放</h2>
-          <div class="replay-bar">
-            <select id="replaySelect" onchange="loadReplay()">
-              <option value="">-- 选择期号 --</option>
-            </select>
-            <label class="chk"><input type="checkbox" id="replaySort" onchange="loadReplay()"> 按命中排序</label>
-            <span class="hint-inline">金框 ✓ = 命中球 · 下拉已标注每期最好成绩</span>
-          </div>
-          <div id="replayResult"></div>
-        </div>
-        <div class="card">
-          <h2>🔍 系统回放诊断 <span class="tag">纯统计+ML 反事实</span></h2>
-          <button onclick="runReplayDiag()" style="margin:8px 0;padding:4px 12px;">运行最近 20 期诊断</button>
-          <div id="replayDiag"></div>
-        </div>
-      </section>
-
       <!-- 评估报告 -->
       <section id="tab-eval" class="tab-panel">
         <div class="card">
@@ -725,19 +574,12 @@
     </main>
   </div>
 
-  <!-- 更多抽屉（研究功能入口，弱化但完整保留） -->
+  <!-- 更多抽屉（V29：移除研究组 4 个入口 —— 数据分析/规律研究/规律时效/历史回放） -->
   <div class="more-overlay" id="moreOverlay" onclick="closeMore(event)"></div>
   <aside class="more-drawer" id="moreDrawer" aria-label="更多功能">
     <div class="more-drawer-head">
       <b>📂 更多</b>
       <button class="more-close" onclick="closeMore()" title="关闭">✕</button>
-    </div>
-    <div class="more-group">
-      <div class="gtitle">研究</div>
-      <button class="more-item" onclick="switchTab('analysis')">📈 数据分析</button>
-      <button class="more-item" onclick="switchTab('patterns')">🔬 规律研究</button>
-      <button class="more-item" onclick="openRegimeTab()">⏳ 规律时效</button>
-      <button class="more-item" onclick="switchTab('replay')">🗓️ 历史回放</button>
     </div>
     <div class="more-group">
       <div class="gtitle">⚙️ 系统</div>
@@ -754,7 +596,7 @@
            routes_data.py）保持同一口径 ——「号码组合分析系统」，不是「智能预测」。
            「随机性诚实声明」保留为可点链接指向 #rigorCard（随机性检验卡）。
            这句话是 footer 里唯一一句真话，压成四个字等于没说。 -->
-      <footer>双色球号码组合分析系统 <span class="badge badge-ver" id="verText">v4.9.1</span>（M1-M5 + U1-U9 + V4~V28 已上线 · L2 结构层/L3 决策层）· 仅供研究参考 · <a href="javascript:void(0)" class="footer-link" onclick="jumpToCard('rigorCard','predict')" title="双色球为独立随机事件：本系统不承诺中奖率，只做组合结构与概率口径的分析">随机性诚实声明</a> · 数据源 e.17500.cn</footer>
+      <footer>双色球号码组合分析系统 <span class="badge badge-ver" id="verText">v4.9.2</span>（M1-M5 + U1-U9 + V4~V29 已上线 · L2 结构层/L3 决策层）· 仅供研究参考 · <a href="javascript:void(0)" class="footer-link" onclick="jumpToCard('rigorCard','predict')" title="双色球为独立随机事件：本系统不承诺中奖率，只做组合结构与概率口径的分析">随机性诚实声明</a> · 数据源 e.17500.cn</footer>
 </div>
 
 <!-- 号码详情弹窗（全局：任意 Tab 均可触发） -->
@@ -849,6 +691,6 @@
 </div>
 
 <div id="toast"></div>
-<script src="/static/app.js?v=20261023.11"></script>
+<script src="/static/app.js?v=20261024.1"></script>
 </body>
 </html>

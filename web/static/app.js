@@ -555,7 +555,16 @@ function jumpToCard(cardId, tabName) {
   }
 }
 
+//: V29：现存 tab 白名单。删除页面后必须用它兜底 —— 否则历史书签里的
+//: `#analysis` / `#patterns` / `#replay` 会命中一个不存在的 panel，
+//: `switchTab` 把所有 `.active` 都摘掉却不加回任何一个 ⇒ **整页白屏**。
+//: 未知 tab 一律回落 `predict`，并把 hash 纠正回来（否则用户刷新一次又白屏）。
+const VALID_TABS = ["predict", "eval", "data", "settings"];
+
 function switchTab(name) {
+  if (!VALID_TABS.includes(name)) {
+    name = "predict";
+  }
   history.replaceState(null, "", "#" + name);
   $$(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
   $$(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + name));
@@ -563,12 +572,16 @@ function switchTab(name) {
   if (name !== "predict") closeMore();
   if (name === "predict") { hideGearPop(); renderCountdown(); }
   if (name === "settings") { loadLlmConfig(); loadMethodsConfig(); }
-  if (name === "analysis") {
-    if (allFeatures) renderWindow(allFeatures);
-    ensureDrawHistory();
-  }
-  if (name === "patterns" && allPatterns.length) renderPatterns(allPatterns, _summary(allPatterns));
-  if (name === "replay") populateReplaySelect();
+  // ===== V29：analysis / patterns / replay 三页已移除 =====
+  //
+  // 用户 2026-10-24 指示「更多」下四个页面功能都不要。删掉页面容器后，
+  // 这里的分支也必须一并删除 —— 否则 hashchange 仍能通过 `#analysis` 等
+  // URL 把页面切到一个不存在的 tab（`switchTab` 会 replaceState 保留该 hash，
+  // 无匹配 panel ⇒ 白屏）。
+  //
+  // 保留数据加载函数本体（`renderWindow` / `renderPatterns` / `populateReplaySelect`
+  // 等）：它们与 `allFeatures` / `allPatterns` 共享同一条数据管线，
+  // 而「评估报告」页仍在消费这些数据。贸然删函数会牵动整条链路。
   // V5：切到「评估报告 → 实战战绩」时按需拉进化状态（快接口）；
   // 重操作回放一律留给用户显式点击，绝不在这里自动触发。
   if (name === "eval" && !_evoStatus) loadEvolutionStatus(false);
@@ -1530,10 +1543,17 @@ function setBHeatMode(m) {
 
 function renderStats(feat) {
   allFeatures = feat;
-  $("#winStats").textContent =
+  // V29：analysis 页已移除，`#winStats` 不再存在。
+  // **关键**：`window._currentProbs` 必须**无条件**赋值 —— 它被出号/诊断链路消费
+  // （`window._currentProbs` 是统计概率分布的全局缓存），
+  // 若因为页面消失就提前 return，会把一个真实功能悄悄弄坏，而症状是
+  // 「某处概率为空」—— 极难与本次改动联系起来。
+  window._currentProbs = feat.red_probs ? {red_probs: feat.red_probs, blue_probs: feat.blue_probs || []} : {};
+  const _ws = $("#winStats");
+  if (!_ws) return;          // 页面已移除：只跳过渲染，不跳过上面的赋值
+  _ws.textContent =
     "最新一期 " + feat.issue + " " + feat.date + "：红 " + feat.last_reds.join(" ") + " 蓝 " + feat.last_blue;
   renderWindow(feat);
-  window._currentProbs = feat.red_probs ? {red_probs: feat.red_probs, blue_probs: feat.blue_probs || []} : {};
 }
 
 function renderWindow(feat) {
@@ -1928,7 +1948,13 @@ function _summary(patterns) {
 
 function renderPatterns(items, summary) {
   allPatterns = items;
-  $("#patSummary").textContent = "A:" + summary.A + " B:" + summary.B + " C:" + summary.C;
+  // V29：patterns 页已移除，`#patSummary` 不再存在。
+  // 保留函数本体（`allPatterns` 仍被评估报告页消费），但必须提前返回 ——
+  // 否则 `$("#patSummary").textContent` 会在 null 上抛 TypeError，
+  // 把整条数据加载链（loadAll → 后续卡片）一起打断。
+  const _ps = $("#patSummary");
+  if (!_ps) return;
+  _ps.textContent = "A:" + summary.A + " B:" + summary.B + " C:" + summary.C;
   const rfCount = allPatterns.filter(p => { const rf = patternRedFlag(p); return rf && rf.flagged; }).length;
   if (rfCount) $("#patSummary").textContent += " · 🔴红牌 " + rfCount;
   $("#patCount").textContent = "共 " + items.length + " 条";
@@ -1953,6 +1979,9 @@ function renderPatterns(items, summary) {
 }
 
 function filterPatterns() {
+  // V29：patterns 页已移除，`#patCount` / `#patSummary` 不再存在。
+  // 该函数仍可能被旧引用触发（如全局刷新），提前返回避免 null 上取属性。
+  if (!$("#patCount")) return;
   const grade = $("#patGradeFilter")?.value || "";
   const kind = $("#patKindFilter")?.value || "";
   let filtered = allPatterns;
@@ -4940,7 +4969,7 @@ async function loadAll() {
       if (health.version) {
         const ver = "v" + health.version;
         const vb = $("#verBadge"), vt = $("#verText");
-        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + " · v4.9.1 V28"; }
+        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + " · v4.9.2 V29"; }
         if (vt) vt.textContent = ver;
       }
     }
