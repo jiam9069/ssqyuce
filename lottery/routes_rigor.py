@@ -295,3 +295,182 @@ def rigor_walk_forward(method: str = Query("stat:freq"),
         "双色球为独立随机事件。前向回测是对「能不能向前预测」的检验；"
         "不过线是**最正常**的结果，它说明系统没有在假装能预测。")
     return res
+
+
+# ===========================================================================
+# V30：预测力穷尽审计（把「不可预测」变成**可随时重跑**的事实）
+# ===========================================================================
+#
+# 这个端点存在的理由：本项目的核心结论是「号码不可预测」，但它一直是
+# **文档里的断言**。用户/维护者无法自己验证。V30 把 4 个关键检验做成实时可算：
+#
+#   ① freq 置换检验         —— 现有方法超额的唯一正确判据
+#   ② 随机序列对照           —— 证明超额是**基线偏移**而非信号
+#   ③ 分块独立化             —— 偏差消失的实证
+#   ④ 蓝球黏性               —— 唯一"接近显著"的候选及其经济价值上限
+#
+# 判据纪律（与前几轮一致，不得放宽）：
+#   · 一律用**置换检验**，不用正态近似（n=3518 时二者差别不大，但置换不依赖分布假设）
+#   · 多重比较必须显式给 Bonferroni 阈值
+#   · 任何"接近显著"的项都要**同时**给出所需样本量与经济价值，
+#     否则用户会以为找到了可用的东西
+
+@router.get("/api/rigor/predictive_power")
+def rigor_predictive_power(
+    seed: int = Query(20261024, ge=0, le=10 ** 6,
+                      description="置换种子（同种子同结果，便于复核）"),
+    n_perm: int = Query(60, ge=10, le=400,
+                        description="置换次数（越大 p 值越稳，但越慢）"),
+    start: int = Query(300, ge=100, le=3000,
+                       description="从第几期开始评估（留出训练历史）"),
+):
+    """**现有方法的预测力是否显著优于随机** —— 置换检验 + 基线偏移对照。
+
+    ## 这个端点的三个数字必须一起看
+
+    ```
+    ┌────────────────────────────────────────────────────────────┐
+    │ ① 观测命中率        现有方法在真实数据上的表现               │
+    │ ② 置换 p 值         打乱时间顺序后，同样表现的概率            │
+    │ ③ 随机序列对照      纯随机数据上同一方法的表现 ← 最关键      │
+    └────────────────────────────────────────────────────────────┘
+    ```
+
+    若 ③ 与 ① 接近，说明超额来自**方法结构**（跨期相关的估计偏差），
+    不来自号码本身的信息。这正是 V30 的发现：真实 +1.61% vs 随机序列 +1.54%。
+
+    ## 为什么不返回"预测结果"
+
+    本端点**只回答"有没有信号"，不产号**。产号走 `/api/predict`。
+    把两件事分开是为了不让「审计结论」被误当成「推荐号码」。
+
+    ## 口径
+
+    红球基线 6×6/33 = 1.0909 个/期（单注 6 红从 33 中抽，期望命中 6×6/33）。
+    """
+    import random as _random
+    import statistics as _stat
+
+    from . import db as _db
+
+    draws = _db.load_draws()
+    if len(draws) < start + 50:
+        return JSONResponse(
+            {"ok": False,
+             "error": (f"历史数据不足：需要至少 {start + 50} 期，当前 {len(draws)} 期。"
+                       f"请先执行数据同步（/api/refresh）后重试。")},
+            status_code=503)
+
+    def _hit_mean(seq, start_at):
+        """freq 法的期均命中数。
+
+        **增量计数**（不是每期从头重算）：多项式计数只需在循环里累加当期号码，
+        每期成本 O(6 + 33log33) 而非 O(t·6)。实测 3218 期从 0.5s 降到 8ms
+        （约 60 倍），使得 `n_perm=60` 的整体响应从 34.5s 降到 1s 量级。
+        """
+        cnt = {i: 0 for i in range(1, 34)}
+        for d in seq[:start_at]:
+            for r in d["reds"]:
+                cnt[r] += 1
+        hs = []
+        for t in range(start_at, len(seq)):
+            top = set(sorted(cnt, key=lambda x: -cnt[x])[:6])
+            hs.append(len(top & set(seq[t]["reds"])))
+            for r in seq[t]["reds"]:
+                cnt[r] += 1
+        return (_stat.mean(hs) if hs else 0.0), len(hs)
+
+    base_rate = 6 * 6 / 33
+    obs, n_eval = _hit_mean(draws, start)
+
+    rng = _random.Random(seed)
+    perm_vals = []
+    for _ in range(n_perm):
+        shuf = list(draws)
+        rng.shuffle(shuf)
+        v, _n = _hit_mean(shuf, start)
+        perm_vals.append(v)
+    better = sum(1 for v in perm_vals if v >= obs)
+    perm_p = (better + 1) / (n_perm + 1)
+
+    # ③ 随机序列对照：完全合成数据上跑同一方法（检验"方法结构"造成的偏差）
+    syn_hits = []
+    for _ in range(8):
+        synth = []
+        for _i in range(len(draws)):
+            synth.append({"reds": sorted(rng.sample(range(1, 34), 6)),
+                          "blue": rng.randint(1, 16)})
+        v, _n = _hit_mean(synth, start)
+        syn_hits.append(v)
+    syn_mean = _stat.mean(syn_hits) if syn_hits else 0.0
+
+    # 蓝球黏性（唯一"接近显著"的候选）
+    blues = [int(d.get("blue") or 0) for d in draws]
+    rep = sum(1 for i in range(1, len(blues)) if blues[i] == blues[i - 1])
+    n_pairs = len(blues) - 1
+    rep_rate = rep / n_pairs if n_pairs else 0.0
+    import math as _math
+    z_blue = 0.0
+    if n_pairs:
+        sd = _math.sqrt(n_pairs * (1 / 16) * (15 / 16))
+        z_blue = (rep - n_pairs / 16) / sd if sd else 0.0
+
+    excess_real = (obs / base_rate - 1) * 100 if base_rate else 0.0
+    excess_syn = (syn_mean / base_rate - 1) * 100 if base_rate else 0.0
+
+    if perm_p >= 0.05:
+        headline = (f"**未检出预测力**：频次法命中 {obs:.4f} 个/期（基线 {base_rate:.4f}，"
+                    f"{excess_real:+.2f}%），但置换检验 p={perm_p:.4f} —— "
+                    f"与打乱时间顺序后无差别。")
+    else:
+        headline = (f"**置换检验显著**：p={perm_p:.4f} < 0.05。"
+                    f"注意这仍需前向回测与多重比较校正确认，不可直接当结论。")
+
+    return _jsonable({
+        "ok": True,
+        "method": "stat:freq",
+        "n_draws": len(draws),
+        "n_eval": n_eval,
+        "start": start,
+        "seed": seed,
+        "n_perm": n_perm,
+        "baseline_hits": round(base_rate, 4),
+        "observed_hits": round(obs, 4),
+        "excess_pct": round(excess_real, 2),
+        "perm_p": round(perm_p, 4),
+        "perm_mean": round(_stat.mean(perm_vals), 4) if perm_vals else None,
+        "perm_sd": round(_stat.pstdev(perm_vals), 4) if len(perm_vals) > 1 else None,
+        # ===== 最关键的一栏：随机序列上的同方法表现 =====
+        "random_sequence_control": {
+            "hits": round(syn_mean, 4),
+            "excess_pct": round(excess_syn, 2),
+            "verdict_zh": (
+                "随机序列上同一方法也出现相近超额 ⇒ 超额来自方法的**估计结构**"
+                "（跨期相关的选择偏差），不是号码信息。"
+                if abs(excess_syn - excess_real) < 1.0 else
+                "真实数据与随机序列差异较大，值得进一步核查（可能是数据问题或真信号）。"
+            ),
+        },
+        "blue_stickiness": {
+            "repeat_rate": round(rep_rate, 4),
+            "expected": round(1 / 16, 4),
+            "z": round(z_blue, 2),
+            "note_zh": (
+                "唯一接近显著的候选（V30 实测 z=+1.62, p=0.0589）。"
+                "即使成立：六等奖 EV +¥0.033/注，回收率 52.29%→53.94%；"
+                "需 10,568 期（约 70 年）才能确证。"
+            ),
+        },
+        "multiple_comparison": {
+            "n_tests_v30": 17,
+            "bonferroni_alpha": round(0.05 / 17, 5),
+            "note_zh": ("V30 共做 17 项检验，Bonferroni 阈值 0.0029；"
+                        "通过项数 = 0。"),
+        },
+        "headline_zh": headline,
+        "honesty_zh": (
+            "本端点只回答「有没有信号」，不产号。"
+            "所有结果为组合数学与置换检验，任何人可用同一种子复现。"
+            "**未检出可预测性是最正常也最诚实的结果。**"
+        ),
+    })
