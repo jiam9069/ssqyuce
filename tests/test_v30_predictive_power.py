@@ -125,3 +125,26 @@ def test_deterministic_with_same_seed(seeded):
     b = RR.rigor_predictive_power(seed=12345, n_perm=10, start=300)
     assert a["observed_hits"] == b["observed_hits"]
     assert a["perm_p"] == b["perm_p"]
+
+def test_random_control_verdict_uses_standard_error(seeded):
+    """随机序列对照的判定必须用**标准误**，不能用固定阈值。
+
+    2026-10-24 实测踩到：只跑 8 条随机序列时 excess_syn 抖动很大
+    （+0.18% / +0.66% / +1.54%），用 ±1.0pp 硬阈值会**随机地**判成
+    「值得核查」，与置换 p=0.5 的结论直接矛盾。
+
+    变异实证：把判据改回 `abs(diff) < 1.0`，本测试在若干种子下变红。
+    """
+    verdicts = []
+    for seed in (1, 2, 3, 4, 5):
+        r = RR.rigor_predictive_power(seed=seed, n_perm=10, start=300)
+        c = r["random_sequence_control"]
+        assert "se_pct" in c, "必须暴露抽样标准误，判据才可复核"
+        assert c["n_sequences"] >= 3, "随机序列条数必须够估标准误"
+        # 判定与置换 p 不得矛盾：p 大时不应说"发现信号"
+        if r["perm_p"] >= 0.05:
+            assert "值得进一步核查" not in c["verdict_zh"] or c["se_pct"] == 0, (
+                f"seed={seed}: perm_p={r['perm_p']} 却说值得核查，自相矛盾")
+        verdicts.append(c["verdict_zh"][:20])
+    # 判据应稳定（不随种子大幅摇摆）
+    assert len(set(verdicts)) <= 2, f"判定过于摇摆：{verdicts}"

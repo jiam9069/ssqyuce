@@ -394,8 +394,13 @@ def rigor_predictive_power(
     perm_p = (better + 1) / (n_perm + 1)
 
     # ③ 随机序列对照：完全合成数据上跑同一方法（检验"方法结构"造成的偏差）
+    #
+    # 条数从 8 提到 30：8 条时标准误自身估不准（df=7，t 分布尾部很厚），
+    # 2026-10-24 实测 seed=3 出现过 excess_syn=6.88% 的离群值，
+    # 导致"超出 2 个标准误"的假警报，与置换 p=0.73 自相矛盾。
+    # 30 条后 sd 估计稳定（df=29），且增量计数让每条仅 ~8ms，总成本可忽略。
     syn_hits = []
-    for _ in range(8):
+    for _ in range(30):
         synth = []
         for _i in range(len(draws)):
             synth.append({"reds": sorted(rng.sample(range(1, 34), 6)),
@@ -403,6 +408,9 @@ def rigor_predictive_power(
         v, _n = _hit_mean(synth, start)
         syn_hits.append(v)
     syn_mean = _stat.mean(syn_hits) if syn_hits else 0.0
+    #: 随机序列对照的**抽样标准误**（百分点）。判据用它，不用固定阈值。
+    syn_sd = _stat.pstdev(syn_hits) if len(syn_hits) > 1 else 0.0
+    se_syn = (syn_sd / (base_rate or 1)) * 100 if base_rate else 0.0
 
     # 蓝球黏性（唯一"接近显著"的候选）
     blues = [int(d.get("blue") or 0) for d in draws]
@@ -441,14 +449,24 @@ def rigor_predictive_power(
         "perm_mean": round(_stat.mean(perm_vals), 4) if perm_vals else None,
         "perm_sd": round(_stat.pstdev(perm_vals), 4) if len(perm_vals) > 1 else None,
         # ===== 最关键的一栏：随机序列上的同方法表现 =====
+        #
+        # 判据必须用**标准误**，不能用固定阈值（1.0 个百分点）。
+        # 2026-10-24 实测踩到：只跑 8 条随机序列时，excess_syn 抖动很大
+        # （同一次调用 +0.18%，早一次 +0.66%，手工复算 +1.54%），
+        # 用 ±1.0pp 硬阈值会随机地判成"值得核查"——**与置换 p=0.52 结论矛盾**。
+        # 正确做法：把 excess_syn 的抽样标准误算出来，看 |差值| 是否在 2se 内。
         "random_sequence_control": {
             "hits": round(syn_mean, 4),
             "excess_pct": round(excess_syn, 2),
+            "n_sequences": len(syn_hits),
+            "se_pct": round(se_syn, 2),
             "verdict_zh": (
-                "随机序列上同一方法也出现相近超额 ⇒ 超额来自方法的**估计结构**"
-                "（跨期相关的选择偏差），不是号码信息。"
-                if abs(excess_syn - excess_real) < 1.0 else
-                "真实数据与随机序列差异较大，值得进一步核查（可能是数据问题或真信号）。"
+                "随机序列上同一方法也出现相近超额（差值在 2 个标准误内）"
+                "⇒ 超额来自方法的**估计结构**（跨期相关的选择偏差），不是号码信息。"
+                if abs(excess_syn - excess_real) <= 2 * se_syn else
+                (f"真实数据与随机序列差值 {abs(excess_syn - excess_real):.2f}pp "
+                 f"超出 2 个标准误（{2 * se_syn:.2f}pp），值得进一步核查"
+                 f"（可能是数据异常；仍以置换 p 值为准）。")
             ),
         },
         "blue_stickiness": {
