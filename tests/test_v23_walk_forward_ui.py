@@ -139,30 +139,39 @@ def test_walk_forward_red_channel_uses_count_baseline(fake_db):
 # 2. 前端：首屏必须显示结论与诚实声明
 # ==========================================================================
 
-def test_frontend_walk_forward_card_and_rendering():
-    """首屏必须有前向回测卡片，且前端真的渲染结论、并在启动时加载。
+def test_frontend_walk_forward_card_removed():
+    """**V34 起**：前向回测卡已按用户指示从主页移除。
 
-    ## 缺一不可
+    用户 2026-10-24：「去掉主页的『前向回测』和『方差优化选号』」。
+    理由是 V30/V31/V32/V33 已把「不可预测」证到不再需要每日展示。
 
-    1. `index.html` 里有 `id="wfBody"` / `id="wfTag"` 卡片 ——
-       否则后端算得再准也看不到；
-    2. JS 里调用 `/api/rigor/walk_forward` —— 否则卡片没有数据源；
-    3. 渲染 `headline_zh` / `honesty_zh` / `z_median` ——
-       只显示数字等于数据倾倒，用户无从判断好坏；
-    4. `loadWalkForward();` 在启动路径被调用 —— 否则卡片永远"加载中…"。
+    ## 但后端端点必须保留
 
-    变异点：删任一项 —— 变红。**JS 必须先剥注释**（`_source_assert.js_code`），
-    否则注释里的字样会造成假绿。
+    移除的是**首页展示**，不是**审计能力**：
+      · `/api/rigor/walk_forward` 仍可用（需要时可手动调用）
+      · 后端返回值仍是完整契约（tier/z_median/headline_zh 等）
 
-    说明：三处读取合并为**一条**断言，避免无谓增长元守卫的 B 类配额
-    （`test_qa_source_assert_meta.py` 的 `B_BASELINE`，只防增长）。
+    所以本测试断言两件事：
+      1. 前端**不再**有卡片与调用（用户要的效果）；
+      2. 后端路由**仍然注册**（不许趁机删掉审计工具）。
+
+    变异实证：把卡片加回 HTML，第 1 条变红；
+              删掉 routes_rigor 的 walk_forward 路由，第 2 条变红。
     """
     from tests._source_assert import js_code
     root = pathlib.Path(__file__).resolve().parents[1]
     html = (root / "web" / "index.html").read_text(encoding="utf-8")
     src = js_code((root / "web" / "static" / "app.js").read_text(encoding="utf-8"))
-    missing = [k for k in ('id="wfBody"', 'id="wfTag"') if k not in html]
-    missing += [k for k in ("/api/rigor/walk_forward", "headline_zh",
-                            "honesty_zh", "z_median") if k not in src]
-    assert not missing, f"首屏前向回测未接好，缺少：{missing}"
-    assert "loadWalkForward();" in src, "启动时必须调用 loadWalkForward()"
+
+    # ① 前端残留（一次比对，避免消耗 B 类配额）
+    residuals = [k for k in ('id="wfBody"', 'id="wfTag"') if k in html]
+    residuals += [k for k in ("loadWalkForward", "/api/rigor/walk_forward")
+                  if k in src]
+    assert not residuals, f"这些前端残留应已移除（V34）：{residuals}"
+
+    # ② 后端路线必须仍在（审计能力不许删）
+    from lottery import routes_rigor as RR
+    paths = [r.path for r in RR.router.routes]
+    assert "/api/rigor/walk_forward" in paths, "后端审计端点必须保留"
+
+

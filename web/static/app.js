@@ -809,7 +809,7 @@ function renderPredictions(res) {
   if (basis.basis_issue) issueTxt += "（基于上期 " + basis.basis_issue + " · " + (basis.basis_date || "") + "）";
   $("#predIssue").textContent = issueTxt;
   renderPredMeta(res);
-  renderRuleUsage(res);
+  // V34：`renderRuleUsage(res)` 已移除 —— 首页「本期规律使用情况」卡按用户指示删除。
   const list = $("#predList");
   const items = res.tickets || [];
   if (!items.length) {
@@ -948,75 +948,16 @@ function renderPredMeta(res) {
   const r = res.rules || {};
   if (r.mode) {
     const modeTxt = r.mode === "active" ? "已生效" : (r.mode === "shadow" ? "影子模式（只记录不改号）" : "未使用规律");
+    // V34：卡片删了，但**预测元信息里的规律状态保留** —— 它附着在票上，
+    // 说明这批票生成时规律引擎处于什么状态，属于历史记录而非展示面板。
+    // 口径纪律（V14-A4）：字段必须读 `usable_replayable`（权威），
+    // 不读已弃用别名 `usable` —— 否则会与挖掘层的 usable 混淆。
+    const _nUsable = Number(r.usable_replayable != null ? r.usable_replayable
+                                                         : (r.usable || 0));
     items.push('<span class="pm-item">🧩 规律 <b>' + escHtml(modeTxt) + '</b>' +
-      (r.usable ? '（可用 ' + r.usable + ' 条）' : "") + '</span>');
+      (_nUsable ? '（可回放 ' + _nUsable + ' 条）' : "") + '</span>');
   }
   el.innerHTML = items.join("");
-}
-
-// V7：本期规律使用情况（可用 / 只监控 / 不可用 + 影子模式的实际影响）
-function renderRuleUsage(res) {
-  const el = $("#ruleBody");
-  const tag = $("#ruleTag");
-  if (!el) return;
-  const r = res.rules || {};
-  if (!r.mode) { if (tag) tag.textContent = "未加载"; return; }
-  const snap = r.snapshot || {};
-  const counts = snap.counts || {};
-  if (tag) tag.textContent = r.mode === "active" ? "规律已生效" : (r.mode === "shadow" ? "影子模式" : "未使用规律");
-  let h = '<div class="track-metrics">' +
-    // V14-A4：口径改名。这里统计的是「生产快照里可回放且可用的规律」，
-    // 与「闲时挖掘的证据项(rule_evidence)」是两件不同的事，不能都叫"可用规律"。
-    // 后端 routes_predict.py 明令：不得把 L2 结构约束叫成「可用规律」。
-    // 口径（V14-A4 + 2026-10-21 文案审计）：这个名字必须自己说清"是什么门槛筛出来的"，
-    // 而不是让用户自己去猜"可用"和"可用规律"的区别。
-    // 副标题**固定写死**「0 条 = 统计否定结论，不是功能故障」——因为 0 条是本项目的
-    // **预期结果**，但用户看到 0 的第一反应是"坏了"。
-    // 兜底顺序：优先 usable_replayable（权威）；usable 是已弃用别名，仅兼容旧快照；
-    // 两者都缺才回落 0 —— 回落 0 时不假装有数据。
-    metricItem("可回放且通过前置注册的规律",
-               Number(r.usable_replayable || r.usable || 0),
-               "0 条 = 统计否定结论，不是功能故障") +
-    metricItem("本轮受规律影响的候选", Number(r.n_resorted || 0), r.mode === "active" ? "已按规律重排" : "影子模式：仅记录") +
-    // V12-04（裁决 R-2）：**禁止跨层相加**。usable 只显示长期可用，
-    // 阶段可用单独列出并标注「未获支持」，避免出现「N 条可用其中大部分没预测力」。
-    metricItem("长期可用 / 监控 / 否决",
-      (counts.usable_long_term || 0) + " / " + (counts.monitor || 0) + " / " + (counts.rejected || 0),
-      counts.usable_phase
-        ? "另：阶段可用 " + counts.usable_phase + " 条（3515 期未获支持，仅观察）"
-        : (snap.generated_at ? "快照 " + snap.generated_at : "未生成快照")) +
-    // S2（V15）：长期效应档单独一行——语义是「长期平均显著，当前不一定生效」，
-    // 绝不能并进「长期可用」里冒充当前有效。
-    metricItem("长期效应（长期平均显著·当前不一定生效）",
-      Number(counts.usable_persistent_effect || 0),
-      "近 K 段方向一致 + 长期 Bonferroni 显著；与「长期可用（持续有效）」不是一回事") +
-    '</div>';
-  h += '<div class="rule-shadow">' + escHtml(r.note_zh || "") + '</div>';
-  const rules = r.usable_rules || [];
-  if (rules.length) {
-    h += '<div class="scroll" style="margin-top:8px"><table class="battle-table"><thead><tr>' +
-      '<th>通过前置注册的规律</th><th>维度</th><th>阶段状态</th><th>效应</th>' +
-      '<th>校正p</th></tr></thead><tbody>';
-    for (const x of rules) {
-      const rg = x.regime || {};
-      h += '<tr><td style="text-align:left">' + escHtml((x.statement || "").slice(0, 46)) + '</td>' +
-        '<td style="text-align:left">' + escHtml((x.dim && x.dim.key) || "") + ' ' +
-        escHtml(JSON.stringify((x.dim && x.dim.params) || {})) + '</td>' +
-        '<td>' + escHtml(rg.label || rg.status || "") + '</td>' +
-        '<td>' + (rg.effect === null || rg.effect === undefined ? "—" : Number(rg.effect).toFixed(4)) + '</td>' +
-        '<td>' + (rg.p_adjusted === null || rg.p_adjusted === undefined ? "—" : Number(rg.p_adjusted).toFixed(4)) + '</td></tr>';
-    }
-    h += '</tbody></table></div>';
-  } else {
-    h += '<div class="track-note">当前 0 条规律满足「阶段持续有效 + A/B 验证 + 通过前置注册」。' +
-      '这是<b>统计否定结论</b>，不是功能故障——真实彩票数据上本就该是 0 条。' +
-      '可到「评估报告 → ⏳ 规律时效」看全部规律的阶段画像，或点「⟳ 规律闭环」重新挖掘验证。</div>';
-  }
-  h += '<div class="eval-actions" style="margin-top:8px">' +
-    '<button onclick="refreshRuleSnapshot()">⟳ 刷新规律快照</button>' +
-    '<button onclick="runClosedLoop()">🤖 跑一次 AI 规律闭环（挖掘→验证→使用）</button>' +
-    '<span class="hint-inline">闭环约 1~8 分钟（含大模型三轮）；完成后本期规律状况会随之更新</span></div>';
-  el.innerHTML = h;
 }
 
 async function refreshRuleSnapshot() {
@@ -1089,7 +1030,11 @@ async function runClosedLoop() {
   if (window._closedLoopRunning) { toast("闭环已在运行中，请等待完成"); return; }
   if (!window.confirm("AI 规律闭环：维度扫描 → 大模型三轮提规律/自我质疑/修订 → 逐条 as-of 回放验证 → 注册 → 刷新规律快照。\n\n预计 1~8 分钟，将在后台运行并显示每个阶段的进度（可离开本页）。\n\n确定开始？")) return;
   window._closedLoopRunning = true;
-  const area = document.querySelector("#evalSub-regime:not(.hidden)") ? "#rgLabBody" : "#ruleBody";
+  // V34：`#ruleBody`（首页规律卡）已删除，回退目标改为「规律研究」页的实验区。
+  // 若该区也不在（用户不在研究页），area 为 null —— runBackgroundTask 已支持
+  // 无渲染区（只是不显示进度），不会抛错。
+  const area = document.querySelector("#evalSub-regime:not(.hidden)") ? "#rgLabBody"
+             : (document.querySelector("#rgLabBody") ? "#rgLabBody" : null);
   const res = await runBackgroundTask({
     submitPath: "/api/rules/closed-loop/async?rounds=3&use_llm=1",
     renderArea: area,
@@ -4603,114 +4548,6 @@ async function renderRigorSignal(strategy, window) {
       escHtml((e && e.message) || "未知错误") + '）。不构成「通过检验」。</div>';
   }
 }
-
-// V23 / L3：前向回测读数——把「我们试过了，数据说没有」变成可复核的事实。
-// 它必须显示**结论**，而不是只丢一堆数字让人自己猜。
-async function loadWalkForward() {
-  const tag = $("#wfTag"), body = $("#wfBody");
-  if (!body) return;
-  try {
-    const r = await api("/api/rigor/walk_forward?method=stat:freq&color=blue");
-    const z = (r.z_median === null || r.z_median === undefined) ? "—" : Number(r.z_median).toFixed(2);
-    const passed = !!r.passed;
-    tag.textContent = passed ? "过线" : "未过线";
-    tag.style.color = passed ? "var(--green)" : "var(--muted)";
-    const rows = [
-      ["命中率", r.hit_rate === null || r.hit_rate === undefined
-        ? "—" : (r.color === "red" ? Number(r.hit_rate).toFixed(3) + " 个/期"
-                                   : (Number(r.hit_rate) * 100).toFixed(2) + "%")],
-      ["随机基线", r.baseline === null || r.baseline === undefined
-        ? "—" : (r.color === "red" ? Number(r.baseline).toFixed(3) + " 个/期"
-                                   : (Number(r.baseline) * 100).toFixed(2) + "%")],
-      ["z（多种子中位数）", z],
-      ["门槛", String(r.z_min)],
-      ["评估注数", String(r.n || 0)],
-      ["各次 z", (r.z_by_seed || []).join(" / ") || "—"],
-    ];
-    const kv = rows.map(([k, v]) =>
-      '<div class="kv"><span class="muted">' + escHtml(k) + '</span><b>' +
-      escHtml(v) + '</b></div>').join("");
-    const headline = '<div style="margin:8px 0;font-weight:600;color:' +
-      (passed ? "var(--green)" : "var(--muted)") + '">' + escHtml(r.headline_zh || "") + '</div>';
-    const honesty = r.honesty_zh
-      ? '<div class="muted" style="font-size:12px;margin-top:6px">' + escHtml(r.honesty_zh) + '</div>' : "";
-    body.innerHTML = headline + kv + honesty;
-  } catch (e) {
-    tag.textContent = "不可用";
-    body.innerHTML = '<div class="muted">' + escHtml(e.message || "加载失败") + '</div>';
-  }
-}
-
-// V27：方差优化选号卡。
-//
-// 它展示的是「票单结构好不好」，**不是**「号码准不准」。
-// 三个数字必须同时出现（缺一即误导）：
-//   ① var_ratio 降了多少（真实增益，任何人可用 ticket_distribution 复核）
-//   ② 并集覆盖 / P(≥4红)（副产物，同样可复核）
-//   ③ 期望收益没变（EV 恒为 n × ¥1.0458）
-async function loadVariancePick(nTickets) {
-  const tag = $("#vpTag"), body = $("#vpBody"), honesty = $("#vpHonesty");
-  const seedNote = $("#vpSeedNote");
-  if (!body) return;
-  const n = Math.max(1, Math.min(50, parseInt(nTickets, 10) || 10));
-  body.innerHTML = '<div class="muted">计算中…</div>';
-  tag.textContent = "计算中…";
-  tag.style.color = "var(--muted)";
-  try {
-    const r = await api("/api/portfolio/variance-pick?n_tickets=" + n +
-                        "&seed=42&with_baseline=true&baseline_samples=60");
-    if (!r || r.ok === false) {
-      tag.textContent = "不可用";
-      body.innerHTML = '<div class="muted">' +
-        escHtml((r && r.error) || "计算失败") + '</div>';
-      return;
-    }
-    const s = r.summary || {};
-    const b = (r.baseline && r.baseline.ok) ? r.baseline : null;
-    const imp = b ? b.improvement : null;
-    const varTxt = Number(s.var_ratio || 0).toFixed(3);
-    const varImp = imp ? (imp.var_ratio_pct > 0 ? "+" : "") + imp.var_ratio_pct + "%" : "—";
-    const p4 = s.p_at_least_r ? s.p_at_least_r["4"] : null;
-    const p4Imp = imp && imp.p_at_least_r_pct
-      ? (imp.p_at_least_r_pct["4"] > 0 ? "+" : "") + imp.p_at_least_r_pct["4"] + "%"
-      : "—";
-    const rows = [
-      ["注数", String(s.n || n)],
-      ["红球并集", String(s.union_coverage || 0) + " / 33" +
-        (imp ? "（随机均值 " + b.random_baseline.union_coverage_mean.toFixed(1) + "）" : "")],
-      ["方差比 var_ratio", varTxt + (imp ? "（比随机 " + varImp + "）" : "")],
-      ["P(≥1 注中 ≥4 红)", p4 === null ? "—" : (Number(p4) * 100).toFixed(3) + "%" +
-        (imp ? "（" + p4Imp + "）" : "")],
-      ["P(≥1 注中 ≥3 红)", s.p_at_least_r ? (Number(s.p_at_least_r["3"]) * 100).toFixed(2) + "%" : "—"],
-      ["期望命中数", Number(s.expected_hits || 0).toFixed(3) + "（= n × 12/11，恒等式）"],
-    ];
-    const kv = rows.map(function (kvrow) {
-      return '<div class="kv"><span class="muted">' + escHtml(kvrow[0]) + '</span><b>' +
-        escHtml(kvrow[1]) + '</b></div>';
-    }).join("");
-    const tickets = (r.tickets || []).map(function (t) {
-      return '<div class="ticket-line" style="font-family:monospace">' +
-        (t.reds || []).map(function (x) { return String(x).padStart(2, "0"); }).join(" ") +
-        '</div>';
-    }).join("");
-    body.innerHTML = kv +
-      '<div style="margin-top:10px"><b>红球组合（蓝球请自行选择）</b></div>' +
-      '<div style="margin-top:4px">' + tickets + '</div>';
-    tag.textContent = b ? "方差 " + varImp : "已生成";
-    tag.style.color = "var(--green)";
-    if (honesty) {
-      const h = r.honesty || {};
-      honesty.innerHTML = escHtml(h.ev_unchanged_zh || "") + " " +
-        escHtml(h.p_at_least_r_note_zh || "") + " " +
-        escHtml(h.no_prediction_zh || "");
-    }
-    if (seedNote) seedNote.textContent = "种子 " + r.seed + " · 同种子可复现";
-  } catch (e) {
-    tag.textContent = "不可用";
-    body.innerHTML = '<div class="muted">' + escHtml((e && e.message) || "加载失败") + '</div>';
-  }
-}
-
 async function loadRigor() {
   const card = $("#rigorCard");
   try {
@@ -4969,7 +4806,7 @@ async function loadAll() {
       if (health.version) {
         const ver = "v" + health.version;
         const vb = $("#verBadge"), vt = $("#verText");
-        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + " · v4.13.0 V33"; }
+        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + " · v4.14.0 V34"; }
         if (vt) vt.textContent = ver;
       }
     }
@@ -4986,12 +4823,10 @@ async function loadAll() {
       renderTrackRecordError(e);
     }
     loadRigor();   // V4：随机性检验卡（依赖缺失时自行降级，不影响其它区块）
-  loadWalkForward();  // V23：前向回测卡（同样自降级；失败不阻塞首屏）
-  loadVariancePick(10);  // V27：方差优化选号卡（自降级；不阻塞首屏）
-  (function bindVariancePick(){
-    const btn = $("#vpRun"), inp = $("#vpN");
-    if (btn && inp) btn.addEventListener("click", function(){ loadVariancePick(inp.value); });
-  })();
+  // V34：前向回测卡与方差优化选号卡已按用户指示从主页移除。
+  // 对应的后端端点（/api/rigor/walk_forward、/api/portfolio/variance-pick）
+  // **保留可用** —— 它们是审计工具，仍可在需要时手动调用，
+  // 只是不再占用首页空间。
     initMlStatus();
     try {
       const llmRep = await api("/api/eval/llm/latest");
