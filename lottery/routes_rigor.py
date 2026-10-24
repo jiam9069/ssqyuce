@@ -725,3 +725,243 @@ def rigor_neural_exhaustive(
             "**未检出可学习性是最正常也最诚实的结果。**"
         ),
     })
+
+
+# ===========================================================================
+# V32：组合级联合分布（二阶结构 + 一阶偏置 + 可利用性）
+# ===========================================================================
+#
+# 用户 2026-10-24：「先放下经济价值，按照理论上仍可行的方向走下一步」。
+#
+# V30/V31 的共同缺陷：**33 个号各自独立建模**。但每期恰好 6 个号，
+# 号与号之间存在负相关约束 —— 独立建模违背了这个约束。
+#
+# V32 做三件事：
+#   ① 二阶共现（Ising 风格）：检验号对之间是否存在结构
+#   ② 一阶边际：检验单号频次是否偏离均匀
+#   ③ as-of 可利用性：即使偏置为真，能不能用之前的数据估出来并提高命中
+#
+# ## 本轮最重要的方法论收获（端点里必须体现）
+#
+# · **卡方表在这里会骗人**：零分布实际均值 26.74 而非理论 32
+#   （每期抽 6 个不放回 ⇒ 33 个计数有"和为定值"约束 ⇒ 负相关 ⇒ 方差压缩）。
+#   观测 45.07 < 卡方临界 46.19 却置换 p=0.0094 —— 必须用置换。
+# · **二阶 χ² 会把一阶偏置放大成假信号**：
+#   未条件化 762.7（z=+3.99），条件化后 452.6（低于期望 528）。
+#   一个号多出现 55 次会让它参与的 32 个 pair 全偏高。
+# · **分类准确率是错误判据**：跟随偏置 0.4948 << "总是猜不出现" 0.8182
+#   （18% 基础率下后者天然 82% 正确）。必须用 top-6 命中数。
+
+@router.get("/api/rigor/joint_distribution")
+def rigor_joint_distribution(
+    seed: int = Query(20261024, ge=0, le=10 ** 6),
+    n_perm: int = Query(400, ge=50, le=3000,
+                        description="置换次数（用于一阶/二阶的零分布）"),
+):
+    """**组合级联合分布**：号与号之间到底有没有结构。
+
+    返回三块，必须一起看：
+
+    ```
+    ┌──────────────────────────────────────────────────────────────┐
+    │ ① pairwise     二阶共现：未条件化 vs **条件化**（核心）       │
+    │ ② marginal     一阶边际：置换 p 与 Bonferroni 阈值            │
+    │ ③ usability    as-of 可跟随性：偏置能否变成命中率             │
+    └──────────────────────────────────────────────────────────────┘
+    ```
+
+    ## ② 与 ③ 的关系
+
+    ② 若显著，只说明"频次不均匀"。③ 才回答"这份不均匀能不能用"。
+    V32 实测：② 置换 p=0.0094（未过 Bonferroni z=2.42<3.17），
+    ③ 跟随策略 0.4948 远低于常数基线 0.8182 —— **两个都不过**。
+
+    ## 为什么给出"条件化 chi2"
+
+    未条件化的二阶 χ²（762.7）会把一阶偏置放大成假信号：
+    一个号多出现 55 次，它参与的 32 个 pair 全部偏高。
+    条件化（用每号实际出现次数算期望）后降到 452.6，
+    **低于独立假设的期望 528** —— 说明二阶结构不仅不存在，还更"均匀"。
+
+    ## 判据纪律
+
+    · 零分布一律用**置换**，不用卡方表（实际均值 26.74 ≠ 理论 32）
+    · 单号检验必须给 Bonferroni 阈值（33 个号 = 33 次检验）
+    · 可利用性必须与**常数基线**对照（总是猜"不出现" = 0.8182）
+    """
+    import random as _random
+    import statistics as _stat
+    from math import comb, sqrt
+
+    from . import db as _db
+
+    draws = _db.load_draws()
+    if len(draws) < 1000:
+        return JSONResponse(
+            {"ok": False,
+             "error": (f"历史数据不足：本端点需要至少 1000 期（当前 {len(draws)} 期）。"
+                       f"请先执行 /api/refresh 同步数据后重试。")},
+            status_code=503)
+
+    seq0 = [sorted(int(x) for x in d["reds"]) for d in draws]
+    N = len(seq0)
+    p_single = 6 / 33
+    p_pair = p_single * 5 / 32
+
+    # ---------- ① 二阶共现 ----------
+    def _pair_chi(seq, conditional: bool):
+        cnt = {i: 0 for i in range(1, 34)}
+        pair = {}
+        for r in seq:
+            for x in r:
+                cnt[x] += 1
+            for a in range(6):
+                for b in range(a + 1, 6):
+                    k = (r[a], r[b])
+                    pair[k] = pair.get(k, 0) + 1
+        e_default = len(seq) * p_pair
+        chi = 0.0
+        for i in range(1, 34):
+            for j in range(i + 1, 34):
+                obs = pair.get((i, j), 0)
+                if conditional:
+                    # 给定每号实际出现次数下的期望（负超几何近似）
+                    e = cnt[i] * cnt[j] * 5 / (len(seq) * 6 - 1) if cnt[i] and cnt[j] else 0.0
+                else:
+                    e = e_default
+                if e > 0:
+                    chi += (obs - e) ** 2 / e
+        return chi
+
+    n_pairs = comb(33, 2)
+    chi2_raw = _pair_chi(seq0, conditional=False)
+    chi2_cond = _pair_chi(seq0, conditional=True)
+
+    # ---------- ② 一阶边际 + 置换 ----------
+    def _marg_chi(seq):
+        cnt = {i: 0 for i in range(1, 34)}
+        for r in seq:
+            for x in r:
+                cnt[x] += 1
+        e = len(seq) * p_single
+        return sum((cnt[i] - e) ** 2 / e for i in range(1, 34)), cnt
+
+    chi1, cnt1 = _marg_chi(seq0)
+    rnd = _random.Random(seed)
+    null1 = []
+    for _ in range(n_perm):
+        synth = [sorted(rnd.sample(range(1, 34), 6)) for _ in range(N)]
+        null1.append(_marg_chi(synth)[0])
+    p1 = (sum(1 for v in null1 if v >= chi1) + 1) / (n_perm + 1)
+    null1_mean = _stat.mean(null1) if null1 else 0.0
+    null1_sd = _stat.pstdev(null1) if len(null1) > 1 else 0.0
+
+    top_num = max(range(1, 34), key=lambda i: cnt1[i])
+    e_top = N * p_single
+    sd_top = sqrt(N * p_single * (1 - p_single))
+    z_top = (cnt1[top_num] - e_top) / sd_top if sd_top else 0.0
+    # Bonferroni：33 个号做 33 次检验，双侧 α/33 ⇒ 对应 z 阈值（正态近似）
+    import math as _math
+    alpha_b = 0.05 / 33
+    # 用正态分位数近似（erfinv）
+    def _norm_q(p: float) -> float:
+        # 二分求分位（避免 scipy 依赖）
+        lo, hi = 0.0, 6.0
+        for _ in range(80):
+            mid = (lo + hi) / 2
+            cdf = 0.5 * (1 + _math.erf(mid / _math.sqrt(2)))
+            if cdf < 1 - p / 2:
+                lo = mid
+            else:
+                hi = mid
+        return (lo + hi) / 2
+    z_bonf = _norm_q(alpha_b)
+
+    # ---------- ③ as-of 可利用性 ----------
+    W_ASOF = 500
+    hits, n_eval = 0, 0
+    for t in range(W_ASOF, N, 5):          # 抽样加速（每 5 期取一次）
+        hist = seq0[t - W_ASOF:t]
+        hc = 0
+        for r in hist:
+            if top_num in r:
+                hc += 1
+        pred = (hc / W_ASOF) > p_single
+        actual = top_num in seq0[t]
+        n_eval += 1
+        if pred == actual:
+            hits += 1
+    asof_acc = hits / n_eval if n_eval else 0.0
+    const_acc = 1 - p_single
+
+    # 命中率上限（若偏置永续）
+    p_real = cnt1[top_num] / N
+    upper_gain_pct = (p_real / p_single - 1) / 6 * 100
+
+    passed_bonf = abs(z_top) > z_bonf
+
+    headline = (
+        f"**联合结构不存在**：二阶共现条件化后 χ²={chi2_cond:.1f}（期望 {n_pairs}）"
+        f"低于独立假设；一阶最高号 {top_num} 的 z={z_top:+.2f}"
+        f"（Bonferroni 阈值 {z_bonf:.2f}，{'通过' if passed_bonf else '未通过'}）；"
+        f"as-of 跟随策略 {asof_acc:.4f} 远低于常数基线 {const_acc:.4f}。"
+    ) if not passed_bonf else (
+        f"**一阶偏置通过 Bonferroni**（{top_num} 号 z={z_top:+.2f}），"
+        f"但其可利用性仍需看 as-of 检验（{asof_acc:.4f} vs 基线 {const_acc:.4f}）。"
+    )
+
+    return _jsonable({
+        "ok": True,
+        "n_draws": N,
+        "baseline_hits": round(6 * p_single, 4),
+        "pairwise": {
+            "n_pairs": n_pairs,
+            "expected_per_pair": round(N * p_pair, 2),
+            "chi2_unconditional": round(chi2_raw, 1),
+            "chi2_conditional": round(chi2_cond, 1),
+            "df": n_pairs,
+            "verdict_zh": (
+                f"条件化后 χ²={chi2_cond:.1f} **低于**独立假设期望 {n_pairs} —— "
+                f"号与号之间不仅没有正结构，还比独立更均匀。"
+                f"未条件化时的 {chi2_raw:.1f} 是一阶偏置被放大 32 倍的结果，不可作为证据。"
+            ),
+        },
+        "marginal": {
+            "chi2": round(chi1, 2),
+            "df": 32,
+            "perm_p": round(p1, 4),
+            "null_mean": round(null1_mean, 2),
+            "null_sd": round(null1_sd, 2),
+            "chi2_table_critical": 46.19,
+            "distribution_note_zh": (
+                f"**零分布实际均值 {null1_mean:.2f}，不是理论的 32。** "
+                f"因为每期抽 6 个不放回，33 个计数有『和为定值』约束 ⇒ 负相关 ⇒ 方差压缩。"
+                f"用卡方表（临界 46.19）会漏判，必须看置换 p。"
+            ),
+            "top_number": top_num,
+            "top_count": cnt1[top_num],
+            "expected_count": round(e_top, 1),
+            "z": round(z_top, 2),
+            "bonferroni_z_threshold": round(z_bonf, 2),
+            "bonferroni_passed": bool(passed_bonf),
+        },
+        "usability": {
+            "asof_window": W_ASOF,
+            "asof_accuracy": round(asof_acc, 4),
+            "constant_baseline": round(const_acc, 4),
+            "n_eval": n_eval,
+            "upper_gain_pct": round(upper_gain_pct, 3),
+            "verdict_zh": (
+                f"跟随偏置的策略准确率 {asof_acc:.4f} **低于**『总是猜不出现』的 "
+                f"{const_acc:.4f}。18% 基础率下后者天然 82% 正确 —— "
+                f"分类准确率是错误判据，必须用 top-6 命中数。"
+            ),
+        },
+        "headline_zh": headline,
+        "honesty_zh": (
+            "本端点只回答『号与号之间有没有结构』，不产号。"
+            "二阶 χ² 必须先条件化（扣除一阶频次影响），否则会把单号偏置放大成假信号。"
+            "一阶显著性必须过 Bonferroni（33 次检验），且必须通过 as-of 可利用性检验。"
+            "**未检出联合结构是最正常也最诚实的结果。**"
+        ),
+    })

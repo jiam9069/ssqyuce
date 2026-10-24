@@ -4969,7 +4969,7 @@ async function loadAll() {
       if (health.version) {
         const ver = "v" + health.version;
         const vb = $("#verBadge"), vt = $("#verText");
-        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + " · v4.11.0 V31"; }
+        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + " · v4.12.0 V32"; }
         if (vt) vt.textContent = ver;
       }
     }
