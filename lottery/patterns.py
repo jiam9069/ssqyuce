@@ -878,6 +878,3 @@ def run_pattern(pattern: Dict, history: List[Dict]) -> Dict:
     return out
 
 
-def active_pattern_keys(history_len: int) -> List[str]:
-    """各窗口所需最少历史期数（大致），供提示词与预测使用。"""
-    return [p["key"] for p in PATTERNS]

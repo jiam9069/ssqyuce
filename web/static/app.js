@@ -950,7 +950,18 @@ function renderPredMeta(res) {
   const nReq = Number(res.requested_tickets || 0);
   const nAct = (res.tickets || []).length;
   if (nReq || nAct) {
-    items.push('<span class="pm-item">🎫 注数 <b>' + nAct + '</b>' + (nReq && nReq !== nAct ? " / 请求 " + nReq : "") + '</span>');
+    // V40：注数不足时**必须说明原因**。后端 engine.py:943-949 区分三种
+    // shortfall_reason，但此前前端只渲染 "5 / 请求 10" —— 用户看到的是一句
+    // 没说理由的数字，分不清"系统坏了"和"设计如此"（llm_only 按设计以
+    // LLM 实际产出为准，不是缺陷）。
+    const _shortTxt = {
+      llm_only_actual_count: "按 LLM 实际产出为准，非缺陷",
+      candidate_pool_exhausted: "候选池耗尽",
+      all_methods_disabled: "全部选号方法已关闭"
+    }[res.shortfall_reason] || "";
+    items.push('<span class="pm-item">🎫 注数 <b>' + nAct + '</b>' +
+      (nReq && nReq !== nAct ? " / 请求 " + nReq : "") +
+      (_shortTxt ? '（' + escHtml(_shortTxt) + '）' : "") + '</span>');
   }
   const r = res.rules || {};
   if (r.mode) {
@@ -4637,7 +4648,7 @@ async function loadAll() {
       if (health.version) {
         const ver = "v" + health.version;
         const vb = $("#verBadge"), vt = $("#verText");
-        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + " · v4.19.0 V39"; }
+        if (vb) { vb.textContent = ver; vb.title = "系统版本 " + ver + " · v4.20.0 V40"; }
         if (vt) vt.textContent = ver;
       }
     }

@@ -124,11 +124,33 @@ def test_stats_module_imports_only_stdlib(name):
 
 @pytest.mark.parametrize("name", ["eprocess", "rigor"])
 def test_stats_module_has_no_side_effects(name):
-    """不得有项目内相对导入、环境变量、文件 IO、网络。"""
-    src = (LOTTERY / "stats" / f"{name}.py").read_text(encoding="utf-8")
-    for bad in ("from .", "import os", "os.environ", "open(",
-                "import requests", "import urllib", "import socket", "sqlite3"):
-        assert bad not in src, f"stats/{name}.py 含被禁止的用法: {bad!r}"
+    """不得有项目内相对导入、环境变量、文件 IO、网络。
+
+    **V40 改造**：原来是 `assert bad not in src` 的子串扫荡 ——
+    在模块 docstring 里写「本模块不使用 `os.environ`」会让守卫**假红**，
+    而把真实代码 `import os` 删掉、只留注释里的字样，又会让它**假绿**。
+    现改为 AST 级：分别检查 import 语句、属性访问、函数调用。
+    """
+    path = LOTTERY / "stats" / f"{name}.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+
+    for node in ast.walk(tree):
+        # 1) 项目内相对导入：`from . import x` / `from .. import x`
+        if isinstance(node, ast.ImportFrom) and node.level > 0:
+            raise AssertionError(f"stats/{name}.py 含被禁止的相对导入（level={node.level}）")
+        # 2) 被禁的顶层 import
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                assert a.name.split(".")[0] not in {"os", "requests", "urllib",
+                                                    "socket", "sqlite3"}, \
+                    f"stats/{name}.py 含被禁止的 import: {a.name!r}"
+        # 3) 裸 `open(...)` 调用
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "open"):
+            raise AssertionError(f"stats/{name}.py 含被禁止的 open() 调用")
+        # 4) `os.environ` / `os.getenv` 之类的属性访问
+        if isinstance(node, ast.Attribute) and node.attr in {"environ", "getenv"}:
+            raise AssertionError(f"stats/{name}.py 访问了环境变量 .{node.attr}")
 
 
 # ---------- 3. 边界：业务模块不得反向被数学模块依赖 ----------
@@ -153,6 +175,22 @@ def test_idle_mining_uses_stats_package_directly():
 
     允许 `from . import eprocess`（走薄壳）与 `from .stats import eprocess`
     两种写法，但**至少有一处**直接指向 stats —— 否则抽包只是搬了个文件。
+
+    **V40 改造**：原为 `"stats" in src or "eprocess" in src` 的全文子串匹配 ——
+    注释里提一句 `stats` 就能通过（假绿），而实际上**完全没有 import**。
+    现改为 AST：只认真实的 `Import` / `ImportFrom` 节点。
     """
-    src = (LOTTERY / "idle_mining.py").read_text(encoding="utf-8")
-    assert "stats" in src or "eprocess" in src, "idle_mining 未引用判定器"
+    tree = ast.parse((LOTTERY / "idle_mining.py").read_text(encoding="utf-8"))
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.level > 0 and node.module:
+                imported.add(node.module.split(".")[0])
+            for a in node.names:
+                imported.add(a.name.split(".")[0])
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                imported.add(a.name.split(".")[0])
+    assert {"stats", "eprocess"} & imported, (
+        f"idle_mining 未 import 数学包（实际导入集里没有 stats/eprocess）：{sorted(imported)}"
+    )

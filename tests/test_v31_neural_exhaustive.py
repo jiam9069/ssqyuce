@@ -19,6 +19,11 @@ import pytest
 
 from lottery import db, routes_rigor as RR
 
+# 全文件 9 个用例每个都重训 3 模型×33 号×n_null 次置换（单测 26~234s，
+# 文件合计约占全量 77%），文件级 slow 标记：`-m "not slow"` 的日常开发
+# 子集跳过本文件；全量跑（不带 -m）不受影响 —— 分层只分组不跳过。
+pytestmark = pytest.mark.slow
+
 
 @pytest.fixture()
 def seeded(seeded_db):

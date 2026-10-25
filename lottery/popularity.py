@@ -536,9 +536,6 @@ def _set_unfit_reason(reason: str, exc: Optional[BaseException] = None) -> None:
               % (_LAST_UNFIT_REASON, type(exc).__name__, exc), file=sys.stderr)
 
 
-def last_unfit_reason() -> str:
-    """最近一次未拟合的原因（测试与端点诊断用）。"""
-    return "warming" if _WARMING.is_set() else _LAST_UNFIT_REASON
 
 
 def record_warmup_seconds(seconds: float) -> None:

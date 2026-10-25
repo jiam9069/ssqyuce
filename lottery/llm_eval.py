@@ -70,19 +70,14 @@ def _pair_p(delta: List[float]) -> Dict:
 
 
 def _bh_adjust(pvals: List[float]) -> List[float]:
-    """Benjamini-Hochberg 多重检验校正（保序）。"""
-    n = len(pvals)
-    if n == 0:
-        return []
-    order = sorted(range(n), key=lambda i: pvals[i])
-    adj = [0.0] * n
-    for rank, i in enumerate(order, 1):
-        adj[i] = min(1.0, pvals[i] * n / rank)
-    running = 1.0
-    for i in reversed(order):
-        running = min(running, adj[i])
-        adj[i] = running
-    return adj
+    """Benjamini-Hochberg 多重检验校正（保序）。
+
+    **V40 薄壳**：公式唯一真源是 `stats.rigor.benjamini_hochberg`
+    （审计 P2-1：三份并行实现 → 一份真源；recon 数值对拍三份
+    max diff = 0.0，含 12 个随机 p 与 [0.5,0.5,0.1] 重复 p 边界）。
+    """
+    from .stats.rigor import benjamini_hochberg as _truth
+    return _truth(pvals)
 
 
 def run_llm_eval(draws: List[Dict], issues: Optional[int] = None,

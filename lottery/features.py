@@ -194,13 +194,6 @@ def omit_bin_distribution(draws: List[Dict]) -> Dict:
     return bins
 
 
-def window_features(draws: List[Dict], window_sizes=(5, 10, 20, 30, 50, 150)) -> Dict:
-    """多窗口频率矩阵：{窗口名: freq数组(34,)}。"""
-    out = {}
-    for w in window_sizes:
-        sl = window_slice(draws, w)
-        out[f"freq_{w}"] = red_frequency(sl)
-    return out
 
 
 # ---------- 汇总 ----------

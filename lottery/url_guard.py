@@ -94,31 +94,6 @@ def _resolve_all_infos(host: str):
     return out or None
 
 
-def _resolve_all(host: str) -> Tuple[bool, str]:
-    """解析主机名的**全部** A/AAAA 记录。返回 (全为公网, 原因)。
-
-    只要有一条解析到内网就拒 —— 攻击者可以给一个域名同时解析到公网与内网
-    （DNS 轮询 / 多记录），若只检查第一条就会被绕过。
-    """
-    try:
-        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
-    except socket.gaierror as e:
-        return False, f"域名无法解析（{e}）。请填写可公网访问的地址。"
-    except Exception as e:                       # noqa: BLE001
-        return False, f"域名解析异常（{type(e).__name__}）。请确认地址拼写。"
-    if not infos:
-        return False, "域名没有解析出任何 IP。请确认地址拼写。"
-    for info in infos:
-        addr = info[4][0]
-        try:
-            ip = ipaddress.ip_address(addr)
-        except ValueError:
-            return False, f"域名解析出无法识别的地址 {addr}。"
-        if not _ip_is_public(ip):
-            return False, (
-                f"该域名解析到内网/保留地址 {addr}，出于安全考虑不允许"
-                "（服务器会替你访问该地址）。请改用公网可访问的 LLM 服务端点。")
-    return True, ""
 
 
 def check_llm_base_url(base_url: Optional[str], *,

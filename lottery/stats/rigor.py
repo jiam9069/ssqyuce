@@ -172,6 +172,52 @@ def benjamini_hochberg(p_values: Sequence[float]) -> List[float]:
     return out.tolist()
 
 
+def wilson_lower_bound(hits: int, n: int, z: float = 1.96) -> float:
+    """Wilson 得分区间的**下界**（小样本比例不做正态近似）。
+
+    ## 为什么这个函数住在 stats 包里（V40 审计收尾）
+
+    2026-10-24 审计 P2-1 的「三/五份重复统计实现」实测为：
+    **Wilson 下界/区间 ×4 份 + BH 校正 ×3 份**并行实现，真源与副本
+    无一致性守卫 —— 「真源修 bug 副本不跟进」正是 V36 P0-1
+    （六等奖）与 P1-5（sixth_ev_ratio）的共同根因。
+    本函数从 2026-10-25 起是 Wilson 下界的**唯一公式真源**；
+    `backtest._wilson_ci` / `hypothesis._wilson_lower` /
+    `decision_skill._wilson_lower` / `rule_lifecycle.wilson_interval`
+    全部是薄壳（见各自 docstring），公式只此一份。
+
+    纯标准库实现（math.sqrt），满足 stats 包「不 import 业务模块」纪律。
+    n<=0 返回 0.0：与历史各副本的边界语义一致（无样本 → 无证据 → 下界 0），
+    tests/test_v10_cost.py::test_wilson_lower_matches_hypothesis_implementation
+    以 `(0,0) == 0.0` 钉住。
+    """
+    n = int(n)
+    if n <= 0:
+        return 0.0
+    p = float(hits) / n
+    denom = 1.0 + z * z / n
+    centre = p + z * z / (2 * n)
+    margin = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
+    return max(0.0, (centre - margin) / denom)
+
+
+def wilson_interval(k: int, n: int, z: float = 1.96) -> Tuple[Optional[float], Optional[float]]:
+    """Wilson 95%（或按 z 指定置信度）区间，返回 ``(lo, hi)``。
+
+    n<=0 返回 ``(None, None)``：与 rule_lifecycle 历史语义一致
+    （「无样本」与「下界为 0」是两回事，调用方据此区分「无法判定」），
+    tests/test_v11_rule_lifecycle.py::test_t10_wilson_matches_reference 以
+    `wilson_interval(0, 0) == (None, None)` 钉住。
+    """
+    if n <= 0:
+        return None, None
+    p = float(k) / n
+    den = 1.0 + z * z / n
+    center = (p + z * z / (2 * n)) / den
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / den
+    return max(0.0, center - half), min(1.0, center + half)
+
+
 def adjust_pvalues(p_values: Sequence[float]) -> Dict[str, List[float]]:
     """同时给出 Bonferroni 与 BH 两种校正结果（同序）。"""
     return {

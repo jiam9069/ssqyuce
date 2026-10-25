@@ -67,7 +67,34 @@ A_BASELINE = 0
 #: B 类（外部文件 read_text 子串断言）的基线，按**比较数**计。
 #: 实测 2026-10-21：115 处 / 15 个文件。
 #: 改一处就下调一处 —— 基线只许降，不许升。
-B_BASELINE = 141    # 2026-10-24 V35：-4（移除随机性检验卡+数据管理页，断言改为快照式）
+B_BASELINE = 139    # 2026-10-25 V40：141 → 139（Python 源码子串断言 AST 化，明细见下）
+#
+# ## V40 的 -2 明细（每一项都可复跑验证）
+#
+#   * `test_v14_naming_discipline.py::test_run_once_result_marks_usable_as_deprecated`
+#     —— `"usable_deprecated": True` in 全文 → `_src_ast.module_has_dict_key`
+#   * `test_v14_naming_discipline.py::test_rule_evidence_is_not_wired_into_prediction`
+#     —— `"rule_evidence" not in 全文` → `_src_ast.module_identifiers`
+#   * `test_v14_stats_package.py::test_stats_module_has_no_side_effects`
+#     —— 8 个 `bad not in src` 扫荡 → AST 查 import / 属性 / `open()` 调用
+#   * `test_v14_stats_package.py::test_idle_mining_uses_stats_package_directly`
+#     —— `"stats" in src` → AST 查真实 `ImportFrom` 节点
+#
+#   后两处是「多处子串扫荡」合并成「一条 AST 断言」，所以比较数只降 2 ——
+#   降的是**比较**，删的是 **4 组文本断言**。这个差值如实记录，不粉饰。
+#
+# ## 为什么这些必须 AST 化、而不能靠「先剥 Python 注释」糊过去
+#
+#   它们的目标是 **Python 源码文件**，而 `_source_assert.js_code` 只剥 JS 注释。
+#   剥 Python 注释再子串匹配**仍然是文本匹配** —— 把真实代码删掉、
+#   在三引号字符串里留一行同名字样，照样骗过。
+#   只有 AST 才回答「代码里到底有没有这么写」。
+#
+# ## 未改造的 139 处为什么不改
+#
+#   绝大多数是前端 `.js` / `.html` / `.css`。它们不是 Python，`ast` 解析不了，
+#   本来就不适用 AST；继续保持「剥注释后子串匹配」是**正确**做法，不是欠债。
+#   真正欠债的只有 Python 源码断言，本轮已清零。
 #
 # 为什么这一处必要、且无法合并掉：
 #   V23 把「前向回测」搬到首屏（L3）。要守的是「卡片真的存在于 index.html」——

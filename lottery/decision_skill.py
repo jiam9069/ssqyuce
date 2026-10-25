@@ -25,17 +25,14 @@ DECISION_SKILL_BASELINE = 0.5
 def _wilson_lower(hits: int, n: int, z: float = 1.96) -> float:
     """Wilson 95% 区间下界（小样本比例不做正态近似）。
 
-    与 ``hypothesis._wilson_lower`` 同一公式（同一口径只能有一个公式；这里内联
-    是为了不跨模块 import 私有函数，数值一致性由测试钉住）。
+    **V40 薄壳**：公式唯一真源是 `stats.rigor.wilson_lower_bound`
+    （审计 P2-1：四份并行实现 → 一份真源）。原注释称「内联是为了
+    不跨模块 import 私有函数」—— 但 stats 包是**纯数学层**（不 import
+    业务模块的纪律有测试守卫），从这里 import 它没有反向依赖问题；
+    内联反而造成「真源修 bug 副本不跟进」的漂移风险（V36 P0-1 的根因）。
     """
-    n = int(n)
-    if n <= 0:
-        return 0.0
-    p = float(hits) / n
-    denom = 1.0 + z * z / n
-    centre = p + z * z / (2 * n)
-    margin = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5)
-    return float(max(0.0, (centre - margin) / denom))
+    from .stats.rigor import wilson_lower_bound as _truth
+    return _truth(hits, n, z)
 
 
 def decide_from_wilson(wilson_lower: Optional[float],

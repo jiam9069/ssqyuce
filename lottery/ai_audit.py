@@ -111,13 +111,6 @@ def _prize_name(level: Any) -> str:
     return evaluate.PRIZE_NAME.get(lvl, NO_PRIZE)
 
 
-def _prize_rank(level: Any) -> int:
-    """奖级序（数字越小越好）。``0``/非法 → 视为未中奖，排序时最差。"""
-    try:
-        lvl = int(level)
-    except (TypeError, ValueError):
-        return 99
-    return lvl if lvl > 0 else 99
 
 
 # ---------------------------------------------------------------------------
@@ -556,30 +549,6 @@ def _score_note(n_correct: int, n_wrong: int, n_invalid: int, n_skipped: int,
     return head
 
 
-def dumb_judge_baseline(gold_argmax_share: Optional[float] = None,
-                        n_categories: int = 2) -> Dict:
-    """**哑判官基线**（V12-13 替代原先写死的 ``0.5``）。
-
-    为什么必须换掉 ``0.5``：一个「全答同一类」的假判官在真实的类别不均衡数据上会拿到
-    远高于 0.5 的准确率——项目实测 ``rule_lifecycle`` 上全答 ``keep`` 的哑判官准确率
-    **99.19%**。用 0.5 当基线，等于把「AI 只要不比抛硬币差」当成达标，而这个门槛
-    哑判官闭眼就能过。
-
-    基线定义：**总是选金标准中占比最大的那一类**所能取得的准确率上限。
-
-    * 给出 ``gold_argmax_share`` 时直接用它（调用方已统计好金标准分布）；
-    * 否则退化为 ``1/n_categories``（当且仅当各类等频时成立），并在返回体里
-      ``assumed=True`` 标注这是假设值、**不许**当作结论展示。
-    """
-    if gold_argmax_share is not None:
-        share = float(gold_argmax_share)
-        return {"baseline": max(0.0, min(1.0, share)), "assumed": False,
-                "kind": "dumb_judge_argmax",
-                "note_zh": f"哑判官基线 = 全答最常见类别的准确率 {share:.2%}"}
-    share = 1.0 / max(1, int(n_categories))
-    return {"baseline": share, "assumed": True, "kind": "dumb_judge_uniform_assumption",
-            "note_zh": (f"金标准分布未知，按 {n_categories} 类等频假设基线 = {share:.2%}；"
-                        f"这是假设值，不得当作结论")}
 
 
 # ---------------------------------------------------------------------------

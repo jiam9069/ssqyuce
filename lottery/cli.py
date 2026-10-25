@@ -87,6 +87,14 @@ def cmd_online(args):
             print(f'  {r["issue"]} 红命中{r["red_hits"]} 蓝命中{r["blue_hit"]} 奖金{r["reward"]:.0f}')
 
 
+# `lottery online_check` 与 `cmd_online` 的名字不一致是**存量分发 bug**：
+# main() 按 `cmd_<子命令名>` 找处理函数（cli.py:180），而这里的函数叫
+# cmd_online —— 用户敲 `lottery online_check`（--help 里显示的命令名）
+# 直接报「未知命令 online_check」。实测复现与存量缺陷锁见
+# tests/test_v40_module_coverage_b.py。
+cmd_online_check = cmd_online
+
+
 def cmd_serve(args):
     import uvicorn
     port = getattr(args, "port", None) or int(os.environ.get("PORT", "18000"))

@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pytest
 
+from _src_ast import module_has_dict_key, module_identifiers
+
 REPO = Path(__file__).resolve().parent.parent
 
 
@@ -106,9 +108,13 @@ def test_idle_mining_returns_rule_evidence_not_usable():
 
 
 def test_run_once_result_marks_usable_as_deprecated():
-    """`run_once` 返回值保留 usable 别名时必须带弃用标记。"""
-    src = (REPO / "lottery" / "idle_mining.py").read_text(encoding="utf-8")
-    assert '"usable_deprecated": True' in src, \
+    """`run_once` 返回值保留 usable 别名时必须带弃用标记。
+
+    **V40 改造**：原来读整个文件做子串匹配 —— 只要注释里写一句
+    `# "usable_deprecated": True 将来要加` 就会假绿。
+    现改为 AST 级：只认真实字符串字面量（字典键），注释与 docstring 一概不算。
+    """
+    assert module_has_dict_key(REPO / "lottery" / "idle_mining.py", "usable_deprecated"), \
         "兼容别名必须显式标记为弃用，否则会与 patterns_runtime.usable 混淆"
 
 
@@ -117,9 +123,13 @@ def test_rule_evidence_is_not_wired_into_prediction():
 
     出号门控看 `patterns_runtime.counts.usable_replayable`。
     若哪天有人把 `rule_evidence` 接到 predict 上，就是绕过前置注册与 A/B 验证。
+
+    **V40 改造**：原来 `"rule_evidence" not in src` 连**注释**都算 ——
+    注释里写「不使用 rule_evidence」反而会让守卫假红，逼人删注释。
+    现改为 AST 级标识符查询：只有真实的名称引用 / 属性访问才算命中。
     """
-    src = (REPO / "lottery" / "routes_predict.py").read_text(encoding="utf-8")
-    assert "rule_evidence" not in src, \
+    idents = module_identifiers(REPO / "lottery" / "routes_predict.py")
+    assert "rule_evidence" not in idents, \
         "rule_evidence 不应出现在出号门控里（它只是挖掘层的统计结论）"
 
 
@@ -157,7 +167,27 @@ def test_app_js_metric_uses_replayable_field():
 # ---------- 4. 后端纪律本身（防止有人放宽） ----------
 
 def test_backend_discipline_text_intact():
-    """后端「不得叫可用规律」的纪律文本必须还在。"""
+    """后端「不得叫可用规律」的纪律文本必须还在。
+
+    **V40 改造（含方向修正）**：原文是
+
+        src = routes_predict.py 全文
+        assert "不得" in src and "可用规律" in src
+
+    这有两处毛病：
+
+    * **假绿**：纪律文本恰好是**注释**。删掉真实代码里所有约束、
+      只要注释还在，断言就绿 —— 而这条测试声称守的是「书面依据」，
+      那注释确实就是依据，所以方向本身没错；
+    * **假红**：反过来，谁把这段注释整理成中文全角标点或用别的措辞
+      表达同一纪律，守卫就红，逼人去维护措辞而不是纪律本身。
+
+    真正的判据是「**该文件里存在『不得』与『可用规律』这两个词**」，
+    而不是「它们是代码还是注释」—— 纪律文本本来就住在注释里。
+    所以这里改用一个**显式的全文检索 + 说明性报错**，并明确记录：
+    **本条是 B 类里唯一「故意保留全文检索」的一处**，因为它的对象
+    就是注释本身，AST 化在这里没有语义收益。
+    """
     src = (REPO / "lottery" / "routes_predict.py").read_text(encoding="utf-8")
     assert "不得" in src and "可用规律" in src, \
         "后端口径纪律文本被删了 —— 那是防止口径漂移的唯一书面依据"

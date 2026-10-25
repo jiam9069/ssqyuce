@@ -554,37 +554,6 @@ def upgrade_prereq_from_rule(rule: Dict) -> Dict:
                         "因此不能由本机制升级")}
 
 
-def rolling_series(draws: Sequence[Dict], dim: Dict, windows: Sequence[int] = (60,),
-                   points: int = 5) -> List[Dict]:
-    """确定性滚动窗口序列（给 LLM 与前端展示"最近在往哪走"）。
-
-    实现方式：取最近 ``points`` 个 60 期窗口，各自算 as-of 平均效应。
-    **只是展示用**，不参与判据（判据只看 D1/D2/D3）。
-    """
-    from . import discovery
-
-    w = int((windows or (60,))[0])
-    n = len(draws or [])
-    out: List[Dict] = []
-    for i in range(int(points), 0, -1):
-        end = n - (i - 1) * w
-        start = max(200, end - w)
-        if end <= start:
-            continue
-        try:
-            flt = discovery.make_filter(str((dim or {}).get("key") or ""),
-                                        dict((dim or {}).get("params") or {}))
-            res = discovery.asof_scan(draws[:end], flt, start=start, end=end)
-            obs = res.get("obs") or []
-            exp = res.get("exp") or []
-            if not obs:
-                continue
-            d = sum(float(o) - float(e) for o, e in zip(obs, exp)) / len(obs)
-            out.append({"issue": (draws[end - 1] or {}).get("issue") if end <= n else None,
-                        "delta": round(d, 4), "n": len(obs)})
-        except Exception:                                # noqa: BLE001
-            continue
-    return out
 
 
 # ---------------------------------------------------------------------------
@@ -862,15 +831,16 @@ def _agrees(j: Dict) -> bool:
 
 
 def wilson_interval(k: int, n: int, z: float = 1.96) -> Tuple[Optional[float], Optional[float]]:
-    """Wilson 95% 区间（与 api_app._wilson_lower 同口径，避免两套实现漂移）。"""
-    import math
-    if n <= 0:
-        return None, None
-    p = k / n
-    den = 1.0 + z * z / n
-    center = (p + z * z / (2 * n)) / den
-    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / den
-    return max(0.0, center - half), min(1.0, center + half)
+    """Wilson 95% 区间。
+
+    **V40 薄壳**：公式唯一真源是 `stats.rigor.wilson_interval`
+    （审计 P2-1：四份并行实现 → 一份真源）。签名、返回值、
+    边界语义（`n<=0 → (None, None)`）全部不变；
+    `tests/test_v11_rule_lifecycle.py::test_t10_wilson_matches_reference`
+    的参考值 `(0,10)→hi≈0.2775`、`(5,10)→0.2366/0.7634` 继续钉住。
+    """
+    from .stats.rigor import wilson_interval as _truth
+    return _truth(k, n, z)
 
 
 def _skill_note(n: int, n_action: int, p: Optional[float],

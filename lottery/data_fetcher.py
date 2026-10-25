@@ -69,5 +69,3 @@ def fetch_and_update() -> dict:
     return info
 
 
-def load_local(limit: Optional[int] = None):
-    return db.load_draws(limit=limit)

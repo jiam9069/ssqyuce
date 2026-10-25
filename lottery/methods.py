@@ -169,8 +169,6 @@ def _adaptive_path() -> str:
     return str(config.ADAPTIVE_STATE_FILE)
 
 
-def _family_leaf(method: str) -> str:
-    return _family(method)
 
 
 def _load_adaptive() -> Dict:

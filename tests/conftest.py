@@ -62,6 +62,27 @@ _ISOLATED_CONFIG_ATTRS = (
     # 「当前 env + methods_config.json」不一致（test_v10_channels 的
     # "快照 == 现算" 断言会随机红）。
     "CHANNELS",
+    # V40-infra（2026-10-25）：LLM 通道六属性也必须隔离。根因证据链：
+    # (a) 机制 —— lottery/llm_config_store.py:66-87 的 save() 会**直接赋值**
+    #     config.LLM_BASE_URL / LLM_API_KEY / LLM_MODEL / LLM_MODEL_LIST /
+    #     LLM_SAMPLES / LLM_DISABLED 模块全局，并同时写 os.environ 的
+    #     LOTT_LLM_* 五个变量；
+    # (b) 复现 —— pytest tests/test_v40_module_coverage_a.py::test_llm_config_read_never_exposes_api_key
+    #     tests/test_v40_module_coverage_b.py::test_routes_llm_eval_run_requires_llm_configured
+    #     组合跑稳定 1 failed（前测试 save() 后泄漏，单跑两文件各自全绿）；
+    # (c) 因果 —— 名单外泄漏 → 同 worker 后续测试 config.llm_configured() 恒 True
+    #     → coverage_b 的"未配置⇒400"断言永远拿不到（全量跑稳定假红）。
+    # 为什么放 conftest 而不是各文件自带 guard（coverage_a 已自兜底一层）：
+    # 文件级 guard 是"每个受害者自己疗伤"，save() 是公共 API，未来任何文件
+    # 调它都会踩同一个坑 —— 漏 copy guard 的文件就是下一个假红；conftest 是
+    # "堵住伤害源头"，与 isolated_test.sh「靠工具默认值，不靠记得」同一设计
+    # 原则。两层恢复的是同一个 import 时真实值，幂等不冲突。
+    "LLM_DISABLED",
+    "LLM_BASE_URL",
+    "LLM_API_KEY",
+    "LLM_MODEL",
+    "LLM_MODEL_LIST",
+    "LLM_SAMPLES",
 )
 
 _MISSING = object()
@@ -111,6 +132,13 @@ def isolated_env(tmp_path):
         # 先断开临时库连接，再撤销补丁、并显式把真实值写回（双保险：泄漏为零）
         db.close()
         mp.undo()
+        # llm_config_store.save() 除了写 config 模块全局，还写了 os.environ 的
+        # LOTT_LLM_*（见上方名单注释 (a)）。模块常量已由下面的显式恢复兜住，
+        # env 一并 pop 掉：.env 只在 import 时读一次进模块常量，pop 不影响
+        # 后续测试的取值路径，防的是「有测试直接读 os.environ」的旁路。
+        for _k in ("LOTT_LLM_BASE_URL", "LOTT_LLM_API_KEY", "LOTT_LLM_MODEL",
+                   "LOTT_LLM_SAMPLES", "LOTT_LLM_DISABLED"):
+            _os.environ.pop(_k, None)
         for name, value in _REAL_CONFIG.items():
             if value is not _MISSING:
                 setattr(config, name, value)

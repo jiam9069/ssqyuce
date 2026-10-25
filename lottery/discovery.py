@@ -1654,8 +1654,6 @@ def regime_of_filter(draws: Sequence[Dict], flt: Dict, start: int = 200,
     return rep
 
 
-def expected_counts(target: str, k: int) -> float:
-    return PICK * k / R_MAX if target == "red" else k / B_MAX
 
 
 _DISCOVER_CACHE: Dict[str, Any] = {}
@@ -1822,24 +1820,3 @@ def discover(draws: Sequence[Dict], start: int = 200, families: Optional[Sequenc
     return result
 
 
-def llm_discovery_candidates(draws: Sequence[Dict], max_items: int = 12) -> List[Dict]:
-    """给 LLM 的「确定性候选池」：把 as-of 扫描里 |z| 最大的组合整理成结构化条目。
-
-    LLM 的任务不是从零猜规律，而是在这些**已经算过的**候选上做三件事：
-    换维度组合、解释机理、判断阶段有效性。
-    """
-    res = discover(draws, top=max_items, fast_window=600)
-    out = []
-    for it in res.get("items") or []:
-        q = it.get("quick") or {}
-        out.append({
-            "key": it["filter"]["key"], "name_zh": it["filter"]["name_zh"],
-            "params": it["filter"]["params"], "target": it["filter"]["target"],
-            "window_n": q.get("n"), "mean": q.get("mean"), "expected": q.get("expected"),
-            "delta": q.get("delta"), "z": q.get("z"),
-            "p": round(q.get("p"), 5) if q.get("p") is not None else None,
-            "p_adjusted": round(q["p_adjusted"], 5) if q.get("p_adjusted") is not None else None,
-            "regime_status": it.get("status"), "regime_status_zh": it.get("status_zh"),
-            "regime_reason": it.get("reason_zh"),
-        })
-    return out

@@ -70,8 +70,6 @@ SYSTEM_PROMPT = (
 # 上下文构建：把可计算的事实一次性交给 LLM
 # --------------------------------------------------------------------------
 
-def _fmt_list(values: Sequence[Any], limit: int = 12) -> List[Any]:
-    return list(values)[:limit]
 
 
 def _era_series(draws: Sequence[Dict]) -> Dict[str, Any]:

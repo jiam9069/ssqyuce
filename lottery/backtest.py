@@ -15,6 +15,9 @@ from scipy import stats
 import datetime
 
 from . import db, features as F, patterns as P
+from .stats.rigor import benjamini_hochberg as _bh_truth
+from .stats.rigor import wilson_lower_bound as _wilson_lower_truth
+from .stats.rigor import wilson_interval as _wilson_interval_truth
 
 
 # 双色球开奖节奏：每周二、四、日（2003-02-23 首期即为周日）。
@@ -114,30 +117,27 @@ def _draw_value(outcome: str, draw: Dict) -> float:
 
 
 def bh_adjust(pvals: List[float]) -> List[float]:
-    """Benjamini-Hochberg FDR 校正。"""
-    m = len(pvals)
-    if m == 0:
-        return []
-    order = np.argsort(pvals)
-    ranked = np.array(pvals)[order]
-    adj = ranked * m / (np.arange(1, m + 1))
-    for i in range(m - 2, -1, -1):
-        adj[i] = min(adj[i], adj[i + 1])
-    out = np.empty(m)
-    out[order] = np.clip(adj, 0.0, 1.0)
-    return out.tolist()
+    """Benjamini-Hochberg FDR 校正。
+
+    **V40 薄壳**：公式唯一真源是 `stats.rigor.benjamini_hochberg`
+    （审计 P2-1：三份并行实现 → 一份真源；recon 数值对拍三份 max diff = 0.0）。
+    """
+    return _bh_truth(pvals)
 
 
 def _wilson_ci(successes: int, total: int, z: float = 1.96) -> tuple:
-    """正态近似 Wilson 置信区间。"""
+    """正态近似 Wilson 置信区间。
+
+    **V40 薄壳**：公式唯一真源是 `stats.rigor.wilson_lower_bound` /
+    `wilson_interval`（审计 P2-1：四份并行实现 → 一份真源）。
+    历史边界语义 `total==0 → (0.0, 0.0)` 与真源区间版的 `(None, None)` 不同 ——
+    本壳**保留旧语义**：调用方 `backtest_pattern` 把 CI 直接写进
+    `result["backtest"]["ci_lower"]` 数值聚合链，None 会改变下游形状。
+    """
     if total == 0:
         return (0.0, 0.0)
-    p_hat = successes / total
-    denom = 1 + z**2 / total
-    centre = p_hat + z**2 / (2 * total)
-    spread = z * math.sqrt((p_hat * (1 - p_hat) + z**2 / (4 * total)) / total)
-    lo = max(0.0, (centre - spread) / denom)
-    hi = min(1.0, (centre + spread) / denom)
+    lo = _wilson_lower_truth(successes, total, z)
+    _, hi = _wilson_interval_truth(successes, total, z)
     return (lo, hi)
 
 

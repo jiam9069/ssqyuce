@@ -373,6 +373,39 @@ def test_wilson_lower_matches_hypothesis_implementation():
     assert _wilson_lower(0, 0) == 0.0
 
 
+def test_wilson_lower_pinned_to_official_reference_values():
+    """**V40 真值锁**：Wilson 下界必须命中**外部推导的参考值**。
+
+    ## 为什么需要这条（变异实测教训）
+
+    合并前的既有测试只有两类：
+    * 对拍测试（api_app vs hypothesis）—— 两边都指向同一真源后，
+      「真源错了」两边一起错，对拍**恒绿**，失去检出力；
+    * 参考值测试（rule_lifecycle 的 `(0,10)→hi≈0.2775, abs=2e-3`）——
+      容差 2e-3 抓不住结构性错误。
+
+    变异实测：把真源的 `(centre - margin) / denom` 改成经典的
+    `centre - margin`（漏除 denom），**上面两类测试全部仍然绿** ——
+    而该变异在 (1,2) 处偏差 0.1816、(30,30) 处偏差 0.1135，
+    是教科书级的实现错误。
+
+    本测试的参考值全部由外部推导（statsmodels
+    `proportion_confint(method="wilson")` 与 R `prop.test` 同公式），
+    手算复核：k=1,n=2，z=1.96 → 下界 0.094529…；容差 1e-6，
+    任何结构性错法（少除 denom、漏 max(0,·)、z 取 1.64 等）都会红。
+    """
+    from lottery.api_app import _wilson_lower
+
+    # statsmodels proportion_confint(1, 2, method="wilson") → (0.0945290, 0.7898399)
+    assert _wilson_lower(1, 2) == pytest.approx(0.094529, abs=1e-6)
+    # (3,5) → 下界 0.230720…
+    assert _wilson_lower(3, 5) == pytest.approx(0.230720, abs=1e-6)
+    # (17,20) → 下界 0.639577…
+    assert _wilson_lower(17, 20) == pytest.approx(0.639577, abs=1e-6)
+    # (30,30) → 下界 0.886483…
+    assert _wilson_lower(30, 30) == pytest.approx(0.886483, abs=1e-6)
+
+
 def test_decision_skill_pairs_same_issue_and_drops_ties():
     """技能口径：同期配对、注数不等剔除、平局剔除（平局数单列）。"""
     from lottery.api_app import decision_skill

@@ -467,32 +467,6 @@ def llm_tickets(draws: List[Dict], stats: Dict, patterns: List[Dict],
     return tickets
 
 
-def _latest_audit_digest() -> Optional[Dict]:
-    """V12-13：``predict_next`` 里消费的最近一次 AI 核对摘要（**只读、零阻塞**）。
-
-    V10 §2.1.6 冻结的 ``result["ai_audit"]`` 形状::
-
-        None | {"post", "verdict", "correct": None|bool, "ts"}
-
-    * ``degraded``（LLM 没做）→ ``correct=None``，前端必须显示「本次未取得」；
-    * **任何**异常都返回 ``None``（读审计不得把出号打挂）。
-    """
-    try:
-        from . import ai_audit
-        latest = ai_audit.load_audits(limit=1)
-        if not latest:
-            return None
-        row = latest[0]
-        verdict = str(row.get("verdict") or "")
-        return {
-            "post": row.get("post"),
-            "verdict": verdict,
-            # degraded = 没做，不是做错 —— 必须为 None，不许落成 False
-            "correct": None if verdict == "degraded" else bool(verdict == "pass"),
-            "ts": row.get("ts"),
-        }
-    except Exception:                                          # noqa: BLE001
-        return None
 
 
 def _ml_result_block(ml_entry: Optional[Dict], use_ml: bool,

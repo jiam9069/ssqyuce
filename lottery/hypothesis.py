@@ -189,14 +189,16 @@ def _round(value: Any, nd: int = 4) -> float:
 
 
 def _wilson_lower(hits: int, n: int, z: float = 1.96) -> float:
-    """Wilson 区间下界（小样本比例不做正态近似）。"""
-    if n <= 0:
-        return 0.0
-    p = hits / n
-    denom = 1.0 + z * z / n
-    centre = p + z * z / (2 * n)
-    margin = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
-    return float(max(0.0, (centre - margin) / denom))
+    """Wilson 区间下界（小样本比例不做正态近似）。
+
+    **V40 薄壳**：公式唯一真源是 `stats.rigor.wilson_lower_bound`
+    （审计 P2-1：四份并行实现 → 一份真源）。保留同名私有薄壳是因为
+    `tests/test_v10_cost.py::test_wilson_lower_matches_hypothesis_implementation`
+    以「api_app._wilson_lower 对拍 hypothesis._wilson_lower」的形式
+    钉住口径一致性 —— 双薄壳对拍仍逐位相等，对拍守卫的价值保留。
+    """
+    from .stats.rigor import wilson_lower_bound as _truth
+    return _truth(hits, n, z)
 
 
 def _safe_chi2(observed_1based: Sequence[float]) -> Dict:
